@@ -30,6 +30,7 @@ const DEFAULTS = Object.freeze({
 
 let initialised = false;
 let getCast = () => [];        // injected from panel.js; returns [{ name, fields?, banked? }]
+let openInBook = null;         // optional callback: (npcName, bankIdx?) => void
 
 function settings() {
     if (!extension_settings[EXT_NAME]) extension_settings[EXT_NAME] = {};
@@ -140,6 +141,21 @@ function wireEvents() {
     const scroll = document.getElementById(SCROLL_ID);
     if (left && scroll) left.addEventListener("click", () => scroll.scrollBy({ left: -240, behavior: "smooth" }));
     if (right && scroll) right.addEventListener("click", () => scroll.scrollBy({ left:  240, behavior: "smooth" }));
+
+    // Click a portrait card → open Character Sheet
+    if (scroll) {
+        scroll.addEventListener("click", (e) => {
+            const card = e.target.closest(".meg-pb-card");
+            if (!card) return;
+            const name = card.getAttribute("data-name");
+            if (name) openCharacterSheet(name);
+        });
+    }
+
+    // ESC to close sheet
+    document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") closeCharacterSheet();
+    });
 }
 
 function applyCardSize() {
@@ -200,10 +216,11 @@ export function update() {
 // -----------------------------------------------------------------------------
 // Public API
 // -----------------------------------------------------------------------------
-export function initPresentBar({ castGetter } = {}) {
+export function initPresentBar({ castGetter, onOpenInBook } = {}) {
     if (initialised) return;
     initialised = true;
     if (typeof castGetter === "function") getCast = castGetter;
+    if (typeof onOpenInBook === "function") openInBook = onOpenInBook;
 
     const mount = () => {
         const cfg = settings();
@@ -237,4 +254,133 @@ export function applyPresentBarChange() {
         update();
     }
     persist();
+}
+
+// =============================================================================
+// Character Sheet — full-info popup opened by clicking a card
+// =============================================================================
+const SHEET_ID = "meg-pb-sheet";
+
+/**
+ * Renders a "Name" → "value" row, but only when value is non-empty.
+ * Returns "" so we can chain with ${ ... }.
+ */
+function fieldRow(label, val) {
+    if (val === undefined || val === null || String(val).trim() === "") return "";
+    return `<div class="meg-pb-sheet-field">
+        <div class="meg-pb-sheet-field-key">${escapeHtml(label)}</div>
+        <div class="meg-pb-sheet-field-val">${escapeHtml(val)}</div>
+    </div>`;
+}
+
+function sheetSection(title, icon, rows) {
+    const body = rows.filter(Boolean).join("");
+    if (!body) return "";
+    return `<div class="meg-pb-sheet-section">
+        <div class="meg-pb-sheet-section-head"><i class="fa-solid ${icon}"></i> ${escapeHtml(title)}</div>
+        <div class="meg-pb-sheet-section-body">${body}</div>
+    </div>`;
+}
+
+function entryByName(name) {
+    const cast = getCast() || [];
+    const target = (name || "").trim().toLowerCase();
+    return cast.find(e => (e.name || "").trim().toLowerCase() === target) || null;
+}
+
+export function openCharacterSheet(name) {
+    const entry = entryByName(name);
+    if (!entry) return;
+
+    const sceneFields = Object.entries(entry.fields || {}); // raw scene fields
+    const banked = entry.banked || null;
+
+    // Portrait
+    const portrait = banked && banked.pfp ? banked.pfp : "";
+    const initial = (entry.name || "?").trim().charAt(0).toUpperCase();
+    const male = banked ? isMaleSex(banked.sex) : null;
+    const accentClass = male === true ? "meg-pb-sheet-male"
+                       : male === false ? "meg-pb-sheet-female"
+                       : "";
+
+    // Bake the body
+    const portraitInner = portrait
+        ? `<img src="${escapeHtml(portrait)}" alt="${escapeHtml(entry.name)}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" />
+           <div class="meg-pb-sheet-initial" style="display:none;">${escapeHtml(initial)}</div>`
+        : `<div class="meg-pb-sheet-initial">${escapeHtml(initial)}</div>`;
+
+    const ageSex = [banked?.age, banked?.sex].filter(Boolean).join(" · ");
+
+    const sceneSection = sheetSection("This Scene", "fa-clapperboard",
+        sceneFields.map(([k, v]) => fieldRow(k, v)));
+
+    const bankSection = banked ? sheetSection("Dossier", "fa-address-card", [
+        fieldRow("Occupation", banked.occupation),
+        fieldRow("Appearance", banked.appearance),
+        fieldRow("Personality", banked.personality),
+        fieldRow("Inner Circle", banked.innerCircle),
+        fieldRow("Background", banked.background),
+        fieldRow("Agenda (long-term)", banked.agenda),
+        fieldRow("Hidden Layer", banked.hiddenLayer),
+    ]) : "";
+
+    const bookBtn = banked
+        ? `<button class="meg-pb-sheet-book-btn" id="meg-pb-sheet-book-btn">
+              <i class="fa-solid fa-book-open"></i> Open in NPC Book
+           </button>`
+        : `<div class="meg-pb-sheet-unbanked">
+              <i class="fa-solid fa-circle-info"></i>
+              Not in NPC Bank yet — banks fill automatically when the AI emits a "🆕 New NPC" dossier.
+           </div>`;
+
+    const html = `
+        <div id="${SHEET_ID}" class="meg-pb-sheet ${accentClass}" role="dialog" aria-modal="true">
+            <div class="meg-pb-sheet-backdrop"></div>
+            <div class="meg-pb-sheet-card">
+                <button class="meg-pb-sheet-close" type="button" aria-label="Close" title="Close (Esc)">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+                <div class="meg-pb-sheet-head">
+                    <div class="meg-pb-sheet-portrait">${portraitInner}</div>
+                    <div class="meg-pb-sheet-titles">
+                        <div class="meg-pb-sheet-name">${escapeHtml(entry.name)}</div>
+                        ${ageSex ? `<div class="meg-pb-sheet-meta">${escapeHtml(ageSex)}</div>` : ""}
+                        ${banked?.occupation ? `<div class="meg-pb-sheet-occ">${escapeHtml(banked.occupation)}</div>` : ""}
+                    </div>
+                </div>
+                <div class="meg-pb-sheet-body">
+                    ${sceneSection || `<div class="meg-pb-sheet-empty">No scene-specific info parsed for this character in the last reply.</div>`}
+                    ${bankSection}
+                </div>
+                <div class="meg-pb-sheet-footer">
+                    ${bookBtn}
+                </div>
+            </div>
+        </div>
+    `;
+
+    closeCharacterSheet();
+    document.body.insertAdjacentHTML("beforeend", html);
+    const root = document.getElementById(SHEET_ID);
+    if (!root) return;
+
+    // Wire up close handlers
+    root.querySelector(".meg-pb-sheet-backdrop").addEventListener("click", closeCharacterSheet);
+    root.querySelector(".meg-pb-sheet-close").addEventListener("click", closeCharacterSheet);
+
+    const bookEl = root.querySelector("#meg-pb-sheet-book-btn");
+    if (bookEl && banked && typeof openInBook === "function") {
+        bookEl.addEventListener("click", () => {
+            try { openInBook(banked.name || entry.name); } catch (e) { /* */ }
+            closeCharacterSheet();
+        });
+    }
+
+    // Fade-in animation hook
+    requestAnimationFrame(() => root.classList.add("meg-pb-sheet-shown"));
+}
+
+export function closeCharacterSheet() {
+    const root = document.getElementById(SHEET_ID);
+    if (root) root.remove();
 }

@@ -713,3 +713,222 @@ body.meg-sp-hide-inline .mes_text details.meg-sp-tracker-block { display: none !
     text-overflow: ellipsis;
 }
 
+/* =============================================================
+   Character Sheet popup (clicked from Present Characters bar)
+   ============================================================= */
+.meg-pb-sheet {
+    --sheet-accent: var(--meg-sp-accent, #f59e0b);
+    position: fixed;
+    inset: 0;
+    z-index: 10500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.18s ease;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+.meg-pb-sheet.meg-pb-sheet-shown { opacity: 1; }
+.meg-pb-sheet-male   { --sheet-accent: #3b82f6; }
+.meg-pb-sheet-female { --sheet-accent: #f43f5e; }
+
+.meg-pb-sheet-backdrop {
+    position: absolute; inset: 0;
+    background: rgba(0, 0, 0, 0.72);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+}
+
+.meg-pb-sheet-card {
+    position: relative;
+    width: min(720px, 94vw);
+    max-height: 86vh;
+    display: flex;
+    flex-direction: column;
+    background: #131316;
+    border: 1px solid var(--sheet-accent);
+    border-radius: 14px;
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255,255,255,0.04);
+    color: #f4f4f5;
+    overflow: hidden;
+    transform: translateY(8px) scale(0.985);
+    transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.meg-pb-sheet.meg-pb-sheet-shown .meg-pb-sheet-card { transform: translateY(0) scale(1); }
+
+.meg-pb-sheet-close {
+    position: absolute;
+    top: 10px; right: 10px;
+    width: 32px; height: 32px;
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #d4d4d8;
+    cursor: pointer;
+    z-index: 2;
+    display: inline-flex; align-items: center; justify-content: center;
+    transition: background 0.15s, color 0.15s;
+}
+.meg-pb-sheet-close:hover { background: var(--sheet-accent); color: #0e0e11; }
+
+.meg-pb-sheet-head {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 18px 56px 16px 18px;
+    background: linear-gradient(180deg,
+        color-mix(in srgb, var(--sheet-accent) 18%, transparent),
+        transparent);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.meg-pb-sheet-portrait {
+    width: 96px; height: 96px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    overflow: hidden;
+    border: 2px solid var(--sheet-accent);
+    background: rgba(0, 0, 0, 0.4);
+    display: inline-flex; align-items: center; justify-content: center;
+}
+.meg-pb-sheet-portrait img { width: 100%; height: 100%; object-fit: cover; }
+.meg-pb-sheet-initial {
+    width: 100%; height: 100%;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--sheet-accent);
+    font-size: 38px; font-weight: 800; letter-spacing: 1px;
+}
+.meg-pb-sheet-titles { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.meg-pb-sheet-name {
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--sheet-accent);
+    line-height: 1.1;
+    word-break: break-word;
+}
+.meg-pb-sheet-meta {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.7px;
+    color: var(--meg-sp-muted, #a1a1aa);
+    font-weight: 700;
+}
+.meg-pb-sheet-occ {
+    font-size: 13px;
+    color: #d4d4d8;
+    opacity: 0.9;
+    font-style: italic;
+}
+
+.meg-pb-sheet-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px 18px 18px;
+    scrollbar-width: thin;
+    scrollbar-color: #3f3f46 transparent;
+}
+.meg-pb-sheet-body::-webkit-scrollbar { width: 8px; }
+.meg-pb-sheet-body::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 4px; }
+
+.meg-pb-sheet-section { margin-bottom: 18px; }
+.meg-pb-sheet-section:last-child { margin-bottom: 0; }
+.meg-pb-sheet-section-head {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--sheet-accent);
+    font-weight: 800;
+    margin-bottom: 8px;
+    display: flex; align-items: center; gap: 6px;
+}
+.meg-pb-sheet-section-head i { font-size: 12px; }
+.meg-pb-sheet-section-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.meg-pb-sheet-field {
+    display: grid;
+    grid-template-columns: 130px 1fr;
+    gap: 10px;
+    padding: 8px 10px;
+    background: rgba(255, 255, 255, 0.03);
+    border-left: 2px solid color-mix(in srgb, var(--sheet-accent) 50%, transparent);
+    border-radius: 6px;
+}
+.meg-pb-sheet-field-key {
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--meg-sp-muted, #a1a1aa);
+    font-weight: 700;
+    align-self: start;
+    padding-top: 1px;
+}
+.meg-pb-sheet-field-val {
+    font-size: 13px;
+    color: #f4f4f5;
+    line-height: 1.5;
+    word-break: break-word;
+}
+
+.meg-pb-sheet-empty {
+    color: var(--meg-sp-muted, #a1a1aa);
+    font-size: 12.5px;
+    font-style: italic;
+    text-align: center;
+    padding: 18px 0;
+}
+
+.meg-pb-sheet-footer {
+    padding: 12px 18px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    background: rgba(0, 0, 0, 0.25);
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+}
+.meg-pb-sheet-book-btn {
+    background: linear-gradient(180deg,
+        color-mix(in srgb, var(--sheet-accent) 28%, transparent),
+        color-mix(in srgb, var(--sheet-accent) 14%, transparent));
+    color: var(--sheet-accent);
+    border: 1px solid var(--sheet-accent);
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-weight: 700;
+    font-size: 12.5px;
+    cursor: pointer;
+    transition: background 0.15s, transform 0.15s;
+}
+.meg-pb-sheet-book-btn:hover {
+    background: linear-gradient(180deg,
+        color-mix(in srgb, var(--sheet-accent) 38%, transparent),
+        color-mix(in srgb, var(--sheet-accent) 22%, transparent));
+    transform: translateY(-1px);
+}
+.meg-pb-sheet-book-btn i { margin-right: 6px; }
+
+.meg-pb-sheet-unbanked {
+    flex: 1;
+    color: var(--meg-sp-muted, #a1a1aa);
+    font-size: 12px;
+    font-style: italic;
+    display: flex; align-items: center; gap: 6px;
+}
+.meg-pb-sheet-unbanked i { color: var(--sheet-accent); }
+
+/* Click affordance for portrait cards */
+.meg-pb-card { cursor: pointer; }
+.meg-pb-card::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, transparent 60%, rgba(245,158,11,0.0));
+    transition: background 0.2s;
+    pointer-events: none;
+}
+.meg-pb-card:hover::after {
+    background: linear-gradient(135deg, transparent 60%, rgba(245,158,11,0.18));
+}
+

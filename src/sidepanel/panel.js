@@ -242,14 +242,9 @@ function renderWorldState(ws) {
         ));
     }
 
-    // NPC cards — Doom-style: horizontal layout with round avatar + fields
-    if (ws.npcs && ws.npcs.length) {
-        container.appendChild(el("div", { class: "meg-sp-card-head meg-sp-card-head-sep" },
-            el("i", { class: "fa-solid fa-people-group" }), " NPCs Present"));
-        for (const npc of ws.npcs) {
-            container.appendChild(renderPresentNpcCard(npc));
-        }
-    }
+    // NPCs Present is rendered by the Present Characters bar at the bottom
+    // of the chat — click any portrait there to open the full sheet.
+    // (Previous inline NPC cards removed; bar now owns this section.)
 
     // Off-screen
     if (ws.offScreen && ws.offScreen.length) {
@@ -868,7 +863,14 @@ export function initSidePanel({ profileGetter } = {}) {
 
     injectStylesheet();
     setupWandDrag();
-    initPresentBar({ castGetter: buildPresentCast });
+    initPresentBar({
+        castGetter: buildPresentCast,
+        onOpenInBook: (npcName) => {
+            const list = getProfile()?.npcBank?.npcs || [];
+            const idx = list.findIndex(n => (n.name || "").trim().toLowerCase() === (npcName || "").trim().toLowerCase());
+            openNpcBook(idx >= 0 ? idx : undefined);
+        },
+    });
 
     // Build skeleton when DOM is ready
     const mount = () => {
