@@ -174,18 +174,156 @@
 .meg-sp-bullets { margin: 0; padding-left: 18px; }
 .meg-sp-bullets li { margin-bottom: 3px; font-size: 12px; }
 
-.meg-sp-chatter { list-style: none; padding: 0; margin: 0; }
-.meg-sp-chatter li {
-    padding: 6px 8px;
-    border-left: 2px solid var(--meg-sp-accent);
-    background: rgba(245, 158, 11, 0.04);
-    border-radius: 0 4px 4px 0;
-    margin-bottom: 6px;
-    font-size: 12px;
+/* ── Doom-style avatar (used by NPCs Present + Inner Chatter) ── */
+.meg-sp-av {
+    --av-accent: var(--meg-sp-accent);
+    position: relative;
+    flex-shrink: 0;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    border: 2px solid var(--av-accent);
+    background: rgba(0, 0, 0, 0.4);
+    overflow: hidden;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
-.meg-sp-chatter li:last-child { margin-bottom: 0; }
-.meg-sp-chatter-name { font-weight: 700; color: var(--meg-sp-accent); }
-.meg-sp-chatter-quote { color: var(--meg-sp-text); font-style: italic; }
+.meg-sp-av img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.meg-sp-av-empty .meg-sp-av-initial {
+    color: var(--av-accent);
+    font-weight: 800;
+    font-size: 22px;
+    text-transform: uppercase;
+}
+.meg-sp-av-male   { --av-accent: #3b82f6; }
+.meg-sp-av-female { --av-accent: #f43f5e; }
+.meg-sp-av-neutral{ --av-accent: var(--meg-sp-accent); }
+
+/* ── NPCs Present cards (Doom-style horizontal layout) ── */
+.meg-sp-pres-card {
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    padding: 10px;
+    margin-bottom: 8px;
+    transition: background 0.15s, border-color 0.15s;
+}
+.meg-sp-pres-card:hover {
+    background: rgba(0, 0, 0, 0.4);
+    border-color: var(--meg-sp-accent);
+}
+.meg-sp-pres-head { display: flex; align-items: center; gap: 10px; }
+.meg-sp-pres-titles { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.meg-sp-pres-name {
+    font-weight: 800;
+    font-size: 13.5px;
+    color: var(--meg-sp-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.meg-sp-pres-meta {
+    font-size: 10.5px;
+    color: var(--meg-sp-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.meg-sp-pres-book {
+    background: transparent;
+    border: 1px solid var(--meg-sp-border);
+    color: var(--meg-sp-muted);
+    width: 28px; height: 28px;
+    border-radius: 6px;
+    cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.meg-sp-pres-book:hover {
+    background: var(--meg-sp-accent-soft);
+    color: var(--meg-sp-accent);
+    border-color: var(--meg-sp-accent);
+}
+.meg-sp-pres-fields {
+    display: flex; flex-direction: column; gap: 4px;
+    margin-top: 8px; padding-top: 8px;
+    border-top: 1px dashed var(--meg-sp-border-soft);
+}
+.meg-sp-pres-field {
+    display: grid;
+    grid-template-columns: 78px 1fr;
+    gap: 6px;
+    font-size: 11.5px;
+    line-height: 1.45;
+}
+.meg-sp-pres-field-key {
+    color: var(--meg-sp-muted);
+    font-weight: 700;
+    text-transform: uppercase;
+    font-size: 10px;
+    letter-spacing: 0.5px;
+    padding-top: 2px;
+}
+.meg-sp-pres-field-val {
+    color: var(--meg-sp-text);
+    word-break: break-word;
+}
+
+/* ── Inner Chatter — Doom-style thought items ── */
+.meg-sp-chatter {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.meg-sp-thought {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 8px 10px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+}
+.meg-sp-thought-avatar { position: relative; flex-shrink: 0; }
+.meg-sp-thought-avatar .meg-sp-av { width: 48px; height: 48px; }
+.meg-sp-thought-bubbles {
+    position: absolute;
+    bottom: -3px;
+    left: -6px;
+    display: flex;
+    flex-direction: column-reverse;
+    gap: 2px;
+    align-items: flex-start;
+}
+.meg-sp-bubble {
+    background: var(--meg-sp-accent);
+    border-radius: 50%;
+    opacity: 0.85;
+    border: 1px solid rgba(0, 0, 0, 0.4);
+}
+.meg-sp-bubble-1 { width: 8px; height: 8px; }
+.meg-sp-bubble-2 { width: 5px; height: 5px; margin-left: 2px; }
+.meg-sp-thought-content { flex: 1; min-width: 0; }
+.meg-sp-thought-name {
+    font-weight: 800;
+    color: var(--meg-sp-accent);
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 3px;
+}
+.meg-sp-thought-quotes {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+.meg-sp-thought-text {
+    font-size: 12px;
+    font-style: italic;
+    line-height: 1.4;
+    color: var(--meg-sp-text);
+    opacity: 0.92;
+}
 
 .meg-sp-summary-text {
     font-size: 12.5px; line-height: 1.55; white-space: pre-wrap;

@@ -225,21 +225,12 @@ function renderWorldState(ws) {
         ));
     }
 
-    // NPC cards
+    // NPC cards — Doom-style: horizontal layout with round avatar + fields
     if (ws.npcs && ws.npcs.length) {
         container.appendChild(el("div", { class: "meg-sp-card-head meg-sp-card-head-sep" },
             el("i", { class: "fa-solid fa-people-group" }), " NPCs Present"));
         for (const npc of ws.npcs) {
-            container.appendChild(el("div", { class: "meg-sp-card meg-sp-card-npc" },
-                el("div", { class: "meg-sp-card-head" }, npc.name || "NPC"),
-                el("div", { class: "meg-sp-card-fields" },
-                    Object.entries(npc.fields || {}).map(([k, v]) =>
-                        el("div", { class: "meg-sp-field" },
-                            el("span", { class: "meg-sp-field-key" }, k + ":"),
-                            " ",
-                            el("span", { class: "meg-sp-field-val" }, v),
-                        ))),
-            ));
+            container.appendChild(renderPresentNpcCard(npc));
         }
     }
 
@@ -270,16 +261,100 @@ function renderWorldState(ws) {
     return container;
 }
 
+// Find a banked NPC by name (case-insensitive, normalizes whitespace).
+// Used to pull portrait/age/sex into the World State + Inner Chatter views.
+function lookupBankedNpc(name) {
+    if (!name) return null;
+    const npcs = getProfile()?.npcBank?.npcs;
+    if (!Array.isArray(npcs)) return null;
+    const target = name.trim().toLowerCase();
+    for (const n of npcs) {
+        const nm = (n.name || "").trim().toLowerCase();
+        if (!nm) continue;
+        if (nm === target) return n;
+        // Fuzzy: bank name appears as a whole word in scene name (or vice versa)
+        if (nm.split(/\s+/)[0] === target.split(/\s+/)[0]) return n;
+    }
+    return null;
+}
+
+function avatarNode(npc, name) {
+    const fallbackChar = (name || "?").trim().charAt(0).toUpperCase();
+    const male = npc ? isMaleSex(npc.sex) : null;
+    const accentClass = male === true ? "meg-sp-av-male"
+                       : male === false ? "meg-sp-av-female"
+                       : "meg-sp-av-neutral";
+    if (npc && npc.pfp) {
+        return el("div", { class: "meg-sp-av " + accentClass },
+            el("img", { src: npc.pfp, alt: name || "NPC", onerror: function () { this.style.display = "none"; } }));
+    }
+    return el("div", { class: "meg-sp-av meg-sp-av-empty " + accentClass },
+        el("span", { class: "meg-sp-av-initial" }, fallbackChar));
+}
+
+function renderPresentNpcCard(npc) {
+    const name = npc.name || "NPC";
+    const banked = lookupBankedNpc(name);
+    const ageSex = [banked?.age, banked?.sex].filter(Boolean).join(" · ");
+    const fields = Object.entries(npc.fields || {});
+
+    return el("div", { class: "meg-sp-pres-card" },
+        el("div", { class: "meg-sp-pres-head" },
+            avatarNode(banked, name),
+            el("div", { class: "meg-sp-pres-titles" },
+                el("div", { class: "meg-sp-pres-name" }, name),
+                ageSex ? el("div", { class: "meg-sp-pres-meta" }, ageSex) : null,
+            ),
+            banked
+                ? el("button", {
+                    class: "meg-sp-pres-book",
+                    title: "Open in NPC Book",
+                    onclick: () => {
+                        const list = getProfile().npcBank?.npcs || [];
+                        const idx = list.findIndex(n => (n.name || "").trim().toLowerCase() === (banked.name || "").trim().toLowerCase());
+                        openNpcBook(idx >= 0 ? idx : undefined);
+                    },
+                }, el("i", { class: "fa-solid fa-book-open" }))
+                : null,
+        ),
+        fields.length
+            ? el("div", { class: "meg-sp-pres-fields" },
+                fields.map(([k, v]) => el("div", { class: "meg-sp-pres-field" },
+                    el("span", { class: "meg-sp-pres-field-key" }, k),
+                    el("span", { class: "meg-sp-pres-field-val" }, v),
+                )))
+            : null,
+    );
+}
+
 function renderInnerChatter(entries) {
     if (!entries || !entries.length) return el("div", { class: "meg-sp-muted" }, "—");
-    const list = el("ul", { class: "meg-sp-chatter" });
+    // Group consecutive lines by the same NPC so multiple thoughts share one avatar
+    const groups = [];
     for (const e of entries) {
-        list.appendChild(el("li", {},
-            e.name ? el("span", { class: "meg-sp-chatter-name" }, e.name + ": ") : null,
-            el("span", { class: "meg-sp-chatter-quote" }, e.quote),
+        const last = groups[groups.length - 1];
+        if (last && last.name === e.name) last.quotes.push(e.quote);
+        else groups.push({ name: e.name, quotes: [e.quote] });
+    }
+    const wrap = el("div", { class: "meg-sp-chatter" });
+    for (const g of groups) {
+        const banked = lookupBankedNpc(g.name);
+        wrap.appendChild(el("div", { class: "meg-sp-thought" },
+            el("div", { class: "meg-sp-thought-avatar" },
+                avatarNode(banked, g.name),
+                el("div", { class: "meg-sp-thought-bubbles" },
+                    el("div", { class: "meg-sp-bubble meg-sp-bubble-2" }),
+                    el("div", { class: "meg-sp-bubble meg-sp-bubble-1" }),
+                ),
+            ),
+            el("div", { class: "meg-sp-thought-content" },
+                g.name ? el("div", { class: "meg-sp-thought-name" }, g.name) : null,
+                el("div", { class: "meg-sp-thought-quotes" },
+                    g.quotes.map(q => el("div", { class: "meg-sp-thought-text" }, q))),
+            ),
         ));
     }
-    return list;
+    return wrap;
 }
 
 function renderSummary(text) {
