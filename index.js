@@ -14,6 +14,9 @@ import {
     applyPositionChange,
     applyWidthChange,
     applyEnabledChange,
+    getPresentBarSettings,
+    applyPresentBarChange,
+    refreshPresentBar,
 } from "./src/sidepanel/panel.js";
 
 const extensionName = "Megumin-Suite";
@@ -5227,6 +5230,7 @@ function renderDevMode(view = "landing", selectedModeId = null, passedModeData =
 function renderSidePanelTab(c) {
     c.empty();
     const cfg = getSidePanelSettings();
+    const pb = getPresentBarSettings();
 
     const enabledBadge = `<div class="mtab-header-badge" style="background: ${cfg.enabled ? 'rgba(245,158,11,0.12)' : 'rgba(255,255,255,0.06)'}; color: ${cfg.enabled ? '#f59e0b' : 'var(--text-muted)'}; border: 1px solid ${cfg.enabled ? 'rgba(245,158,11,0.25)' : 'var(--border-color)'};">
         <i class="fa-solid fa-${cfg.enabled ? 'circle-check' : 'circle-xmark'}" style="font-size:0.6rem;"></i> ${cfg.enabled ? 'Enabled' : 'Disabled'}
@@ -5311,6 +5315,48 @@ function renderSidePanelTab(c) {
             </div>
         </div>
 
+        <hr style="border: none; border-top: 1px dashed var(--border-color); margin: 18px 0 14px;">
+        <div style="font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px; color: var(--gold); margin-bottom: 8px; font-weight: 700;">
+            <i class="fa-solid fa-users"></i> Present Characters Bar
+        </div>
+
+        <div class="mtab-toggle-row ${pb.enabled ? 'active' : ''}" id="megpb_enabled_row">
+            <div class="toggle-info">
+                <div class="toggle-label">Enable Present Characters Bar</div>
+                <div class="toggle-desc">A Doom-style horizontal portrait strip next to the chat input. Pulls the cast from the AI's World State NPCs Present, portraits from the NPC Bank.</div>
+            </div>
+            <div class="ps-switch"></div>
+        </div>
+
+        <div class="meg-sp-settings-row">
+            <div>
+                <div class="label">Bar position</div>
+                <div class="desc">Where the strip mounts relative to SillyTavern's message input.</div>
+            </div>
+            <div class="control">
+                <select id="megpb_position" class="ps-modern-input" style="min-width: 160px;">
+                    <option value="above" ${pb.position === "above" ? "selected" : ""}>Above input</option>
+                    <option value="below" ${pb.position === "below" ? "selected" : ""}>Below input</option>
+                    <option value="off"   ${pb.position === "off"   ? "selected" : ""}>Off (hide)</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="meg-sp-settings-row">
+            <div>
+                <div class="label">Card size</div>
+                <div class="desc">Width × height of each portrait card in the strip.</div>
+            </div>
+            <div class="control">
+                <input id="megpb_card_w" type="number" min="80" max="240" step="5" value="${pb.cardWidth || 120}" class="ps-modern-input" style="width: 80px;" />
+                <span style="color: var(--text-muted); font-size: 12px;">×</span>
+                <input id="megpb_card_h" type="number" min="100" max="320" step="5" value="${pb.cardHeight || 160}" class="ps-modern-input" style="width: 80px;" />
+                <span style="color: var(--text-muted); font-size: 12px;">px</span>
+            </div>
+        </div>
+
+        <hr style="border: none; border-top: 1px dashed var(--border-color); margin: 18px 0 14px;">
+
         <div class="meg-sp-settings-row">
             <div>
                 <div class="label">Force refresh</div>
@@ -5354,7 +5400,33 @@ function renderSidePanelTab(c) {
     });
     c.find("#megsp_refresh").on("click", function () {
         refreshSidePanel();
+        refreshPresentBar();
         toastr.success("Side panel refreshed", "Megumin Suite");
+    });
+
+    // Present Characters Bar wire-up
+    c.find("#megpb_enabled_row").on("click", function () {
+        pb.enabled = !pb.enabled;
+        $(this).toggleClass("active", pb.enabled);
+        saveSettingsDebounced();
+        applyPresentBarChange();
+    });
+    c.find("#megpb_position").on("change", function () {
+        pb.position = $(this).val();
+        saveSettingsDebounced();
+        applyPresentBarChange();
+    });
+    c.find("#megpb_card_w").on("input change", function () {
+        const v = Math.max(80, Math.min(240, parseInt($(this).val(), 10) || 120));
+        pb.cardWidth = v;
+        saveSettingsDebounced();
+        applyPresentBarChange();
+    });
+    c.find("#megpb_card_h").on("input change", function () {
+        const v = Math.max(100, Math.min(320, parseInt($(this).val(), 10) || 160));
+        pb.cardHeight = v;
+        saveSettingsDebounced();
+        applyPresentBarChange();
     });
 }
 

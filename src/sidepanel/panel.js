@@ -22,6 +22,12 @@ import {
     parseMessage,
     ALL_TRACKER_BLOCKS_REGEX,
 } from "./parsers.js";
+import {
+    initPresentBar,
+    refreshPresentBar,
+    getPresentBarSettings,
+    applyPresentBarChange,
+} from "./presentBar.js";
 
 const EXT_NAME = "Megumin-Suite";
 const PANEL_ID = "meg-sp-panel";
@@ -611,7 +617,44 @@ function render() {
 
 function scheduleRender(delay = 0) {
     if (pendingRender) clearTimeout(pendingRender);
-    pendingRender = setTimeout(() => { pendingRender = null; render(); }, delay);
+    pendingRender = setTimeout(() => {
+        pendingRender = null;
+        render();
+        try { refreshPresentBar(); } catch (e) { /* */ }
+    }, delay);
+}
+
+/**
+ * Cast getter for the Present Characters bar. Reads the latest assistant
+ * message's parsed NPCs Present, augments each with their NPC Bank entry
+ * (for the portrait + sex tint), and de-dupes by name.
+ */
+function buildPresentCast() {
+    try {
+        const ctx = getContext();
+        const found = findLastAssistantMessage(ctx?.chat);
+        const parsed = found ? parseMessage(found.msg.mes) : null;
+        const npcs = parsed?.worldState?.npcs || [];
+        const out = [];
+        const seen = new Set();
+        for (const npc of npcs) {
+            const name = (npc.name || "").trim();
+            if (!name) continue;
+            const key = name.toLowerCase();
+            if (seen.has(key)) continue;
+            seen.add(key);
+            const banked = (getProfile()?.npcBank?.npcs || []).find(b => {
+                const bn = (b.name || "").trim().toLowerCase();
+                if (!bn) return false;
+                if (bn === key) return true;
+                return bn.split(/\s+/)[0] === key.split(/\s+/)[0];
+            }) || null;
+            out.push({ name, fields: npc.fields || {}, banked });
+        }
+        return out;
+    } catch (e) {
+        return [];
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -825,6 +868,7 @@ export function initSidePanel({ profileGetter } = {}) {
 
     injectStylesheet();
     setupWandDrag();
+    initPresentBar({ castGetter: buildPresentCast });
 
     // Build skeleton when DOM is ready
     const mount = () => {
@@ -832,6 +876,7 @@ export function initSidePanel({ profileGetter } = {}) {
         buildPanelSkeleton();
         render();
         stripInlineFromAll();
+        refreshPresentBar();
     };
     if (document.readyState === "loading") {
         document.addEventListener("DOMContentLoaded", mount, { once: true });
@@ -869,6 +914,8 @@ export function initSidePanel({ profileGetter } = {}) {
 }
 
 export function refreshSidePanel() { render(); }
+// Re-export present bar API so the settings tab can drive it
+export { getPresentBarSettings, applyPresentBarChange, refreshPresentBar };
 export function getSidePanelSettings() { return settings(); }
 export function applyInlineHidingChange() {
     document.body.classList.toggle(BODY_HIDE_CLASS, !!settings().hideInline);
