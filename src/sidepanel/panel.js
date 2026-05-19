@@ -1,0 +1,606 @@
+/* eslint-disable no-undef */
+/*
+ * Megumin Suite — Side Panel
+ *
+ * Mounts a fixed side panel that mirrors the trackers Megumin already emits
+ * inline in chat (World State, NPC Inner Chatter, Summary, New NPC dossiers)
+ * plus profile-stored data (Story Planner, NPC Bank, Ban List).
+ *
+ * No preset changes needed — we parse the same <details> blocks the AI is
+ * already writing, and optionally strip them from the rendered chat DOM.
+ */
+
+import { extension_settings, getContext } from "../../../../../extensions.js";
+import {
+    eventSource,
+    event_types,
+    saveSettingsDebounced,
+} from "../../../../../../script.js";
+
+import {
+    findLastAssistantMessage,
+    parseMessage,
+    ALL_TRACKER_BLOCKS_REGEX,
+} from "./parsers.js";
+
+const EXT_NAME = "Megumin-Suite";
+const PANEL_ID = "meg-sp-panel";
+const FAB_ID = "meg-sp-fab";
+const BODY_HIDE_CLASS = "meg-sp-hide-inline";
+const BODY_OPEN_CLASS = "meg-sp-panel-open";
+const SETTINGS_KEY = "sidePanel";
+
+const DEFAULTS = Object.freeze({
+    enabled: true,
+    position: "right",     // "right" | "left"
+    width: 360,            // px
+    collapsed: false,
+    hideInline: true,
+    sections: {
+        worldState: true,
+        innerChatter: true,
+        summary: true,
+        newNpcs: true,
+        storyPlan: true,
+        npcBank: true,
+        banList: true,
+    },
+});
+
+let initialised = false;
+let getProfile = () => ({});   // Injected by index.js so we can read storyPlan/npcBank/banList
+let pendingRender = null;
+
+// -----------------------------------------------------------------------------
+// Settings
+// -----------------------------------------------------------------------------
+function settings() {
+    if (!extension_settings[EXT_NAME]) extension_settings[EXT_NAME] = {};
+    if (!extension_settings[EXT_NAME][SETTINGS_KEY]) {
+        extension_settings[EXT_NAME][SETTINGS_KEY] = structuredClone(DEFAULTS);
+    } else {
+        // Backfill any new keys
+        const cur = extension_settings[EXT_NAME][SETTINGS_KEY];
+        const def = DEFAULTS;
+        for (const k of Object.keys(def)) {
+            if (cur[k] === undefined) cur[k] = structuredClone(def[k]);
+        }
+        if (!cur.sections) cur.sections = structuredClone(def.sections);
+        for (const k of Object.keys(def.sections)) {
+            if (cur.sections[k] === undefined) cur.sections[k] = def.sections[k];
+        }
+    }
+    return extension_settings[EXT_NAME][SETTINGS_KEY];
+}
+
+function persist() {
+    try { saveSettingsDebounced(); } catch (e) { /* noop */ }
+}
+
+// -----------------------------------------------------------------------------
+// DOM helpers
+// -----------------------------------------------------------------------------
+function el(tag, attrs = {}, ...children) {
+    const e = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) {
+        if (k === "class") e.className = v;
+        else if (k === "style" && typeof v === "object") Object.assign(e.style, v);
+        else if (k === "html") e.innerHTML = v;
+        else if (k.startsWith("on") && typeof v === "function") e.addEventListener(k.slice(2).toLowerCase(), v);
+        else if (v !== null && v !== undefined) e.setAttribute(k, v);
+    }
+    for (const c of children) {
+        if (c == null || c === false) continue;
+        if (Array.isArray(c)) {
+            for (const sub of c) {
+                if (sub == null || sub === false) continue;
+                e.appendChild(typeof sub === "string" ? document.createTextNode(sub) : sub);
+            }
+        } else {
+            e.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
+        }
+    }
+    return e;
+}
+
+function escapeHtml(s) {
+    return String(s ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+}
+
+// -----------------------------------------------------------------------------
+// Panel skeleton
+// -----------------------------------------------------------------------------
+function buildPanelSkeleton() {
+    const cfg = settings();
+
+    const fab = el("button", {
+        id: FAB_ID,
+        class: "meg-sp-fab",
+        title: "Megumin Suite Trackers",
+    }, el("i", { class: "fa-solid fa-clipboard-list" }));
+    fab.addEventListener("click", () => togglePanel());
+
+    const panel = el("aside", {
+        id: PANEL_ID,
+        class: `meg-sp-panel meg-sp-pos-${cfg.position}${cfg.collapsed ? " meg-sp-collapsed" : ""}`,
+        style: { "--meg-sp-width": cfg.width + "px" },
+    });
+
+    const header = el("div", { class: "meg-sp-header" },
+        el("div", { class: "meg-sp-title" },
+            el("i", { class: "fa-solid fa-wand-magic-sparkles" }),
+            " Megumin Trackers"),
+        el("div", { class: "meg-sp-header-actions" },
+            el("button", {
+                class: "meg-sp-icon-btn",
+                title: "Refresh from latest message",
+                onclick: () => render(),
+            }, el("i", { class: "fa-solid fa-rotate" })),
+            el("button", {
+                class: "meg-sp-icon-btn",
+                title: "Collapse panel",
+                onclick: () => togglePanel(false),
+            }, el("i", { class: "fa-solid fa-xmark" })),
+        ),
+    );
+
+    const body = el("div", { class: "meg-sp-body" });
+
+    const empty = el("div", { class: "meg-sp-empty", id: "meg-sp-empty" },
+        el("i", { class: "fa-solid fa-hat-wizard" }),
+        el("p", {}, "No tracker data yet. The panel updates whenever the AI emits a World State, NPC Inner Chatter, or Summary block."),
+    );
+    body.appendChild(empty);
+
+    // Section containers — filled by render()
+    const sections = el("div", { class: "meg-sp-sections", id: "meg-sp-sections" });
+    body.appendChild(sections);
+
+    panel.appendChild(header);
+    panel.appendChild(body);
+
+    document.body.appendChild(panel);
+    document.body.appendChild(fab);
+}
+
+// -----------------------------------------------------------------------------
+// Section builders
+// -----------------------------------------------------------------------------
+function section(id, icon, title, contentNode, { open = true, badge = null } = {}) {
+    const d = el("details", { class: "meg-sp-section", id: "meg-sp-section-" + id });
+    if (open) d.open = true;
+    const sum = el("summary", { class: "meg-sp-summary" },
+        el("span", { class: "meg-sp-summary-title" },
+            el("i", { class: "fa-solid " + icon }),
+            " ",
+            title),
+        badge != null ? el("span", { class: "meg-sp-badge" }, String(badge)) : null,
+    );
+    d.appendChild(sum);
+    d.appendChild(contentNode);
+    return d;
+}
+
+function renderWorldState(ws) {
+    if (!ws) return el("div", { class: "meg-sp-muted" }, "—");
+    const rows = [];
+
+    const kv = (label, val) => val ? el("div", { class: "meg-sp-kv" },
+        el("span", { class: "meg-sp-kv-key" }, label),
+        el("span", { class: "meg-sp-kv-val" }, val),
+    ) : null;
+
+    if (ws.dateTime) rows.push(kv("Date & Time", ws.dateTime));
+    if (ws.location) rows.push(kv("Location", ws.location));
+    if (ws.weather) rows.push(kv("Weather", ws.weather));
+    if (ws.scenePhase) rows.push(kv("Scene Phase", ws.scenePhase));
+
+    const container = el("div", { class: "meg-sp-ws" });
+    if (rows.filter(Boolean).length) {
+        container.appendChild(el("div", { class: "meg-sp-ws-meta" }, rows.filter(Boolean)));
+    }
+
+    // PC card
+    if (ws.pc && (ws.pc.name || Object.keys(ws.pc.fields || {}).length)) {
+        container.appendChild(el("div", { class: "meg-sp-card meg-sp-card-pc" },
+            el("div", { class: "meg-sp-card-head" },
+                el("i", { class: "fa-solid fa-user" }),
+                " ",
+                ws.pc.name || "PC"),
+            el("div", { class: "meg-sp-card-fields" },
+                Object.entries(ws.pc.fields || {}).map(([k, v]) =>
+                    el("div", { class: "meg-sp-field" },
+                        el("span", { class: "meg-sp-field-key" }, k + ":"),
+                        " ",
+                        el("span", { class: "meg-sp-field-val" }, v),
+                    ))),
+        ));
+    }
+
+    // NPC cards
+    if (ws.npcs && ws.npcs.length) {
+        container.appendChild(el("div", { class: "meg-sp-card-head meg-sp-card-head-sep" },
+            el("i", { class: "fa-solid fa-people-group" }), " NPCs Present"));
+        for (const npc of ws.npcs) {
+            container.appendChild(el("div", { class: "meg-sp-card meg-sp-card-npc" },
+                el("div", { class: "meg-sp-card-head" }, npc.name || "NPC"),
+                el("div", { class: "meg-sp-card-fields" },
+                    Object.entries(npc.fields || {}).map(([k, v]) =>
+                        el("div", { class: "meg-sp-field" },
+                            el("span", { class: "meg-sp-field-key" }, k + ":"),
+                            " ",
+                            el("span", { class: "meg-sp-field-val" }, v),
+                        ))),
+            ));
+        }
+    }
+
+    // Off-screen
+    if (ws.offScreen && ws.offScreen.length) {
+        container.appendChild(el("div", { class: "meg-sp-card-head meg-sp-card-head-sep" },
+            el("i", { class: "fa-solid fa-satellite-dish" }), " Off-Screen"));
+        container.appendChild(el("ul", { class: "meg-sp-bullets" },
+            ws.offScreen.map(x => el("li", {}, x))));
+    }
+
+    // Threads
+    if (ws.threads && ws.threads.length) {
+        container.appendChild(el("div", { class: "meg-sp-card-head meg-sp-card-head-sep" },
+            el("i", { class: "fa-solid fa-fire" }), " Unresolved Threads"));
+        container.appendChild(el("ul", { class: "meg-sp-bullets" },
+            ws.threads.map(x => el("li", {}, x))));
+    }
+
+    if (ws.leftovers && ws.leftovers.length) {
+        container.appendChild(el("div", { class: "meg-sp-leftover", html:
+            ws.leftovers.map(t => `<div>${escapeHtml(t)}</div>`).join("") }));
+    }
+
+    if (!container.children.length) {
+        container.appendChild(el("div", { class: "meg-sp-muted" }, "(no fields parsed)"));
+    }
+    return container;
+}
+
+function renderInnerChatter(entries) {
+    if (!entries || !entries.length) return el("div", { class: "meg-sp-muted" }, "—");
+    const list = el("ul", { class: "meg-sp-chatter" });
+    for (const e of entries) {
+        list.appendChild(el("li", {},
+            e.name ? el("span", { class: "meg-sp-chatter-name" }, e.name + ": ") : null,
+            el("span", { class: "meg-sp-chatter-quote" }, e.quote),
+        ));
+    }
+    return list;
+}
+
+function renderSummary(text) {
+    if (!text) return el("div", { class: "meg-sp-muted" }, "—");
+    return el("div", { class: "meg-sp-summary-text" }, text);
+}
+
+function renderNewNpcs(list) {
+    if (!list || !list.length) return el("div", { class: "meg-sp-muted" }, "—");
+    const wrap = el("div", { class: "meg-sp-newnpcs" });
+    for (const n of list) {
+        wrap.appendChild(el("div", { class: "meg-sp-card meg-sp-card-newnpc" },
+            el("div", { class: "meg-sp-card-head" },
+                el("i", { class: "fa-solid fa-user-plus" }), " ", n.name || "Unnamed NPC"),
+            Object.keys(n.fields || {}).length
+                ? el("div", { class: "meg-sp-card-fields" },
+                    Object.entries(n.fields).map(([k, v]) =>
+                        el("div", { class: "meg-sp-field" },
+                            el("span", { class: "meg-sp-field-key" }, k + ":"),
+                            " ",
+                            el("span", { class: "meg-sp-field-val" }, v))))
+                : el("div", { class: "meg-sp-muted" }, "(no parsed fields)"),
+        ));
+    }
+    return wrap;
+}
+
+function renderStoryPlan(plan) {
+    if (!plan || !plan.trim()) return el("div", { class: "meg-sp-muted" }, "Story Planner is empty.");
+    const lines = plan.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    const list = el("ol", { class: "meg-sp-plan" });
+    let added = 0;
+    for (const ln of lines) {
+        const clean = ln.replace(/^[\-\*•]\s*/, "").replace(/^\d+[\.\)]\s*/, "");
+        if (!clean) continue;
+        list.appendChild(el("li", {}, clean));
+        added++;
+    }
+    if (!added) return el("div", { class: "meg-sp-summary-text" }, plan.trim());
+    return list;
+}
+
+function renderNpcBank(npcs) {
+    if (!npcs || !npcs.length) return el("div", { class: "meg-sp-muted" }, "No NPCs banked yet.");
+    const wrap = el("div", { class: "meg-sp-bank" });
+    for (const n of npcs) {
+        const head = el("summary", { class: "meg-sp-bank-head" },
+            el("i", { class: "fa-solid fa-address-card" }),
+            " ",
+            (n.name || "Unnamed") + (n.age ? `, ${n.age}` : "") + (n.sex ? ` (${n.sex})` : ""));
+        const fields = [];
+        const addField = (label, val) => {
+            if (!val) return;
+            fields.push(el("div", { class: "meg-sp-field" },
+                el("span", { class: "meg-sp-field-key" }, label + ":"),
+                " ",
+                el("span", { class: "meg-sp-field-val" }, val)));
+        };
+        addField("Occupation", n.occupation);
+        addField("Appearance", n.appearance);
+        addField("Personality", n.personality);
+        addField("Inner Circle", n.innerCircle);
+        addField("Background", n.background);
+        addField("Agenda", n.agenda);
+        addField("Hidden Layer", n.hiddenLayer);
+
+        wrap.appendChild(el("details", { class: "meg-sp-bank-card" },
+            head, el("div", { class: "meg-sp-card-fields" }, fields)));
+    }
+    return wrap;
+}
+
+function renderBanList(items) {
+    if (!items || !items.length) return el("div", { class: "meg-sp-muted" }, "No banned phrases yet.");
+    return el("ul", { class: "meg-sp-banlist" },
+        items.map(p => el("li", {}, typeof p === "string" ? p : (p.phrase || p.text || JSON.stringify(p)))));
+}
+
+// -----------------------------------------------------------------------------
+// Main render
+// -----------------------------------------------------------------------------
+function render() {
+    const panel = document.getElementById(PANEL_ID);
+    if (!panel) return;
+    const cfg = settings();
+    if (!cfg.enabled) {
+        panel.style.display = "none";
+        document.body.classList.remove(BODY_OPEN_CLASS);
+        return;
+    }
+    panel.style.display = "";
+    panel.classList.toggle("meg-sp-collapsed", !!cfg.collapsed);
+    panel.classList.remove("meg-sp-pos-left", "meg-sp-pos-right");
+    panel.classList.add("meg-sp-pos-" + cfg.position);
+    panel.style.setProperty("--meg-sp-width", (cfg.width || 360) + "px");
+    document.body.classList.toggle(BODY_OPEN_CLASS, !cfg.collapsed);
+    document.body.classList.toggle(BODY_HIDE_CLASS, !!cfg.hideInline);
+
+    const host = panel.querySelector("#meg-sp-sections");
+    const empty = panel.querySelector("#meg-sp-empty");
+    if (!host) return;
+
+    host.innerHTML = "";
+
+    // Pull last assistant message and parse
+    let parsed = { hasAny: false };
+    try {
+        const ctx = getContext();
+        const found = findLastAssistantMessage(ctx?.chat);
+        if (found) parsed = parseMessage(found.msg.mes);
+    } catch (e) {
+        console.warn("[Megumin Side Panel] parse failure", e);
+    }
+
+    const prof = getProfile() || {};
+    const sp = prof.storyPlan || {};
+    const bank = prof.npcBank || {};
+    const banList = prof.banList || [];
+
+    const anyChatBlocks = parsed.hasAny || (parsed.newNpcs && parsed.newNpcs.length);
+    const anyProfile = (sp.currentPlan && sp.currentPlan.trim())
+        || (bank.npcs && bank.npcs.length)
+        || (banList && banList.length);
+
+    if (empty) empty.style.display = (anyChatBlocks || anyProfile) ? "none" : "";
+
+    if (cfg.sections.worldState && parsed.worldState) {
+        host.appendChild(section("worldState", "fa-thumbtack", "World State",
+            renderWorldState(parsed.worldState)));
+    }
+    if (cfg.sections.innerChatter && parsed.innerChatter && parsed.innerChatter.length) {
+        host.appendChild(section("innerChatter", "fa-comment-dots", "NPC Inner Chatter",
+            renderInnerChatter(parsed.innerChatter),
+            { badge: parsed.innerChatter.length }));
+    }
+    if (cfg.sections.summary && parsed.summary) {
+        host.appendChild(section("summary", "fa-floppy-disk", "Summary",
+            renderSummary(parsed.summary)));
+    }
+    if (cfg.sections.newNpcs && parsed.newNpcs && parsed.newNpcs.length) {
+        host.appendChild(section("newNpcs", "fa-user-plus", "New NPC Dossiers",
+            renderNewNpcs(parsed.newNpcs),
+            { badge: parsed.newNpcs.length }));
+    }
+    if (cfg.sections.storyPlan && (sp.enabled || (sp.currentPlan && sp.currentPlan.trim()))) {
+        host.appendChild(section("storyPlan", "fa-map", "Story Planner",
+            renderStoryPlan(sp.currentPlan),
+            { open: false }));
+    }
+    if (cfg.sections.npcBank && bank.npcs && bank.npcs.length) {
+        host.appendChild(section("npcBank", "fa-address-book", "NPC Bank",
+            renderNpcBank(bank.npcs),
+            { open: false, badge: bank.npcs.length }));
+    }
+    if (cfg.sections.banList && banList && banList.length) {
+        host.appendChild(section("banList", "fa-ban", "Ban List",
+            renderBanList(banList),
+            { open: false, badge: banList.length }));
+    }
+}
+
+function scheduleRender(delay = 0) {
+    if (pendingRender) clearTimeout(pendingRender);
+    pendingRender = setTimeout(() => { pendingRender = null; render(); }, delay);
+}
+
+// -----------------------------------------------------------------------------
+// Inline-hiding: strip the inline <details> blocks from rendered chat DOM.
+// Raw chat[].mes is left intact so re-parsing on swipe/edit keeps working.
+// -----------------------------------------------------------------------------
+function stripInlineFromMessage(mesId) {
+    const cfg = settings();
+    if (!cfg.enabled || !cfg.hideInline) return;
+    let root;
+    if (mesId !== undefined && mesId !== null) {
+        root = document.querySelector(`.mes[mesid="${mesId}"] .mes_text`);
+    }
+    if (!root) {
+        // Fallback: scrub the most recent
+        const all = document.querySelectorAll(".mes .mes_text");
+        root = all[all.length - 1];
+    }
+    if (!root) return;
+
+    // Walk <details> elements and remove ones whose <summary> contains our emojis
+    root.querySelectorAll("details").forEach(d => {
+        const sum = d.querySelector("summary");
+        if (!sum) return;
+        const txt = sum.textContent || "";
+        if (/📌|💭|💾|🆕/.test(txt)) {
+            d.style.display = "none";
+            d.classList.add("meg-sp-tracker-block");
+        }
+    });
+}
+
+function stripInlineFromAll() {
+    document.querySelectorAll(".mes .mes_text").forEach(root => {
+        root.querySelectorAll("details").forEach(d => {
+            const sum = d.querySelector("summary");
+            if (!sum) return;
+            if (/📌|💭|💾|🆕/.test(sum.textContent || "")) {
+                d.style.display = settings().hideInline ? "none" : "";
+                d.classList.add("meg-sp-tracker-block");
+            }
+        });
+    });
+}
+
+// -----------------------------------------------------------------------------
+// Toggling
+// -----------------------------------------------------------------------------
+function togglePanel(force) {
+    const cfg = settings();
+    const next = (typeof force === "boolean") ? !force : !cfg.collapsed;
+    cfg.collapsed = next;
+    persist();
+    render();
+}
+
+function injectStylesheet() {
+    if (document.getElementById("meg-sp-styles")) return;
+    const link = document.createElement("link");
+    link.id = "meg-sp-styles";
+    link.rel = "stylesheet";
+    // Resolve URL relative to this module so it works regardless of mount path
+    try {
+        link.href = new URL("./styles.css", import.meta.url).toString();
+    } catch (e) {
+        link.href = "scripts/extensions/third-party/Megumin-Suite/src/sidepanel/styles.css";
+    }
+    document.head.appendChild(link);
+}
+
+// -----------------------------------------------------------------------------
+// Public API
+// -----------------------------------------------------------------------------
+export function initSidePanel({ profileGetter } = {}) {
+    if (initialised) return;
+    initialised = true;
+
+    if (typeof profileGetter === "function") getProfile = profileGetter;
+
+    injectStylesheet();
+
+    // Build skeleton when DOM is ready
+    const mount = () => {
+        if (document.getElementById(PANEL_ID)) return;
+        buildPanelSkeleton();
+        render();
+        stripInlineFromAll();
+    };
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", mount, { once: true });
+    } else {
+        mount();
+    }
+
+    // Wire SillyTavern events
+    if (typeof eventSource !== "undefined" && typeof event_types !== "undefined") {
+        eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, (mesId) => {
+            scheduleRender(50);
+            setTimeout(() => stripInlineFromMessage(mesId), 0);
+        });
+        eventSource.on(event_types.USER_MESSAGE_RENDERED, (mesId) => {
+            setTimeout(() => stripInlineFromMessage(mesId), 0);
+        });
+        eventSource.on(event_types.MESSAGE_EDITED, () => scheduleRender(50));
+        eventSource.on(event_types.MESSAGE_DELETED, () => scheduleRender(50));
+        eventSource.on(event_types.MESSAGE_SWIPED, () => {
+            scheduleRender(50);
+            setTimeout(stripInlineFromAll, 50);
+        });
+        eventSource.on(event_types.CHAT_CHANGED, () => {
+            scheduleRender(50);
+            setTimeout(stripInlineFromAll, 100);
+        });
+        eventSource.on(event_types.MORE_MESSAGES_LOADED, () => {
+            setTimeout(stripInlineFromAll, 50);
+        });
+        eventSource.on(event_types.APP_READY, () => {
+            scheduleRender(100);
+            setTimeout(stripInlineFromAll, 150);
+        });
+    }
+}
+
+export function refreshSidePanel() { render(); }
+export function getSidePanelSettings() { return settings(); }
+export function applyInlineHidingChange() {
+    document.body.classList.toggle(BODY_HIDE_CLASS, !!settings().hideInline);
+    stripInlineFromAll();
+    // Re-show if disabled
+    if (!settings().hideInline) {
+        document.querySelectorAll(".mes .mes_text details.meg-sp-tracker-block").forEach(d => {
+            d.style.display = "";
+        });
+    }
+}
+export function applyPositionChange() {
+    const panel = document.getElementById(PANEL_ID);
+    if (!panel) return;
+    const cfg = settings();
+    panel.classList.remove("meg-sp-pos-left", "meg-sp-pos-right");
+    panel.classList.add("meg-sp-pos-" + cfg.position);
+}
+export function applyWidthChange() {
+    const panel = document.getElementById(PANEL_ID);
+    if (!panel) return;
+    panel.style.setProperty("--meg-sp-width", (settings().width || 360) + "px");
+}
+export function applyEnabledChange() {
+    const panel = document.getElementById(PANEL_ID);
+    const fab = document.getElementById(FAB_ID);
+    const cfg = settings();
+    if (panel) panel.style.display = cfg.enabled ? "" : "none";
+    if (fab) fab.style.display = cfg.enabled ? "" : "none";
+    document.body.classList.toggle(BODY_OPEN_CLASS, cfg.enabled && !cfg.collapsed);
+    if (cfg.enabled) {
+        render();
+        stripInlineFromAll();
+    } else {
+        // Show inline blocks again when disabled
+        document.querySelectorAll(".mes .mes_text details.meg-sp-tracker-block").forEach(d => {
+            d.style.display = "";
+        });
+        document.body.classList.remove(BODY_HIDE_CLASS);
+    }
+}

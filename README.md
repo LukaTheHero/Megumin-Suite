@@ -17,6 +17,20 @@
 
 ---
 
+## 🆕 V7.1 — Side Panel
+
+The same trackers you already know (World State, NPC Inner Chatter, Summary, Story Planner, NPC Bank, Ban List) now display in a **fixed side panel** next to the chat instead of being collapsed into the message body.
+
+* **Live updates** — the panel re-parses after every assistant reply, swipe, edit, or message deletion.
+* **Hide inline blocks** — optional toggle strips the tracker `<details>` from the chat DOM (the raw text stays in the saved message, so re-parsing still works).
+* **Per-section toggles** — pick which trackers appear (World State / Inner Chatter / Summary / New NPCs / Story Planner / NPC Bank / Ban List).
+* **Position & width** — anchor left or right, custom width.
+* **No preset changes** — works with the existing V7 prompts. The panel reads the same `<details>` blocks the AI is already emitting.
+
+Open the Megumin Suite menu (wand icon) → **Side Panel** tab to configure.
+
+---
+
 ## 🚀 What's New in V7?
 
 The V7 update is a ground-up rewrite featuring a  massive token savings, and advanced contextual awareness.
