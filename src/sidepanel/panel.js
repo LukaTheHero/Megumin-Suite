@@ -582,6 +582,138 @@ function togglePanel(force) {
     render();
 }
 
+// -----------------------------------------------------------------------------
+// Wand draggability
+// Lets the user drag the Megumin Suite wand button (#prompt-slot-fixed-btn)
+// out of the way. Position persists in extension_settings.
+// -----------------------------------------------------------------------------
+const WAND_POS_KEY = "wandPosition";
+const DRAG_THRESHOLD_PX = 5;
+
+function getWandPos() {
+    if (!extension_settings[EXT_NAME]) extension_settings[EXT_NAME] = {};
+    return extension_settings[EXT_NAME][WAND_POS_KEY] || null;
+}
+function setWandPos(pos) {
+    if (!extension_settings[EXT_NAME]) extension_settings[EXT_NAME] = {};
+    extension_settings[EXT_NAME][WAND_POS_KEY] = pos;
+    persist();
+}
+function clampPos({ left, top }) {
+    const w = window.innerWidth, h = window.innerHeight, btn = 48;
+    return {
+        left: Math.max(4, Math.min(w - btn - 4, left)),
+        top: Math.max(4, Math.min(h - btn - 4, top)),
+    };
+}
+function applyWandPos(btn, pos) {
+    if (!btn || !pos) return;
+    const c = clampPos(pos);
+    btn.style.top = c.top + "px";
+    btn.style.left = c.left + "px";
+    btn.style.right = "auto";
+    btn.style.bottom = "auto";
+}
+
+function setupWandDrag() {
+    const tryAttach = () => {
+        const btn = document.getElementById("prompt-slot-fixed-btn");
+        if (!btn) return false;
+        if (btn.dataset.megSpDraggable === "1") return true;
+        btn.dataset.megSpDraggable = "1";
+
+        // Restore saved position
+        const saved = getWandPos();
+        if (saved) applyWandPos(btn, saved);
+
+        let dragging = false;
+        let moved = false;
+        let startX = 0, startY = 0, startLeft = 0, startTop = 0;
+        let suppressClickUntil = 0;
+
+        const onDown = (e) => {
+            const touch = e.touches ? e.touches[0] : null;
+            const cx = touch ? touch.clientX : e.clientX;
+            const cy = touch ? touch.clientY : e.clientY;
+            // Only respond to primary mouse button
+            if (!touch && e.button !== 0) return;
+            const rect = btn.getBoundingClientRect();
+            startX = cx;
+            startY = cy;
+            startLeft = rect.left;
+            startTop = rect.top;
+            dragging = true;
+            moved = false;
+            btn.style.transition = "none";
+        };
+        const onMove = (e) => {
+            if (!dragging) return;
+            const touch = e.touches ? e.touches[0] : null;
+            const cx = touch ? touch.clientX : e.clientX;
+            const cy = touch ? touch.clientY : e.clientY;
+            const dx = cx - startX;
+            const dy = cy - startY;
+            if (!moved && Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
+            moved = true;
+            e.preventDefault();
+            const next = clampPos({ left: startLeft + dx, top: startTop + dy });
+            btn.style.left = next.left + "px";
+            btn.style.top = next.top + "px";
+            btn.style.right = "auto";
+            btn.style.bottom = "auto";
+            btn.style.cursor = "grabbing";
+        };
+        const onUp = () => {
+            if (!dragging) return;
+            dragging = false;
+            btn.style.transition = "";
+            btn.style.cursor = "";
+            if (moved) {
+                // Persist and swallow the next click so the modal doesn't pop
+                const rect = btn.getBoundingClientRect();
+                setWandPos({ left: rect.left, top: rect.top });
+                suppressClickUntil = Date.now() + 200;
+            }
+        };
+
+        btn.addEventListener("mousedown", onDown);
+        btn.addEventListener("touchstart", onDown, { passive: true });
+        window.addEventListener("mousemove", onMove);
+        window.addEventListener("touchmove", onMove, { passive: false });
+        window.addEventListener("mouseup", onUp);
+        window.addEventListener("touchend", onUp);
+        window.addEventListener("touchcancel", onUp);
+
+        // Click-suppression: capture-phase so we beat Megumin's own click handler
+        btn.addEventListener("click", (e) => {
+            if (Date.now() < suppressClickUntil) {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                e.stopPropagation();
+            }
+        }, true);
+
+        // Hint with cursor
+        btn.style.cursor = "grab";
+        btn.title = (btn.title || "") + " (drag to move)";
+
+        // Keep it inside viewport if window resizes
+        window.addEventListener("resize", () => {
+            const cur = getWandPos();
+            if (cur) applyWandPos(btn, cur);
+        });
+        return true;
+    };
+
+    if (tryAttach()) return;
+    // The wand is injected later from jQuery; poll briefly.
+    let attempts = 0;
+    const id = setInterval(() => {
+        attempts++;
+        if (tryAttach() || attempts > 40) clearInterval(id);
+    }, 250);
+}
+
 function injectStylesheet() {
     if (document.getElementById("meg-sp-styles")) return;
     const link = document.createElement("link");
@@ -606,6 +738,7 @@ export function initSidePanel({ profileGetter } = {}) {
     if (typeof profileGetter === "function") getProfile = profileGetter;
 
     injectStylesheet();
+    setupWandDrag();
 
     // Build skeleton when DOM is ready
     const mount = () => {
