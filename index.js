@@ -5246,20 +5246,20 @@ function renderSidePanelTab(c) {
             ${enabledBadge}
         </div>
 
-        <div class="meg-sp-settings-row">
-            <div>
-                <div class="label">Enable Side Panel</div>
-                <div class="desc">Mounts the panel on the page. When off, trackers stay inline in the chat as usual.</div>
+        <div class="mtab-toggle-row ${cfg.enabled ? 'active' : ''}" id="megsp_enabled_row">
+            <div class="toggle-info">
+                <div class="toggle-label">Enable Side Panel</div>
+                <div class="toggle-desc">Mounts the panel on the page. When off, trackers stay inline in the chat as usual.</div>
             </div>
-            <div class="control"><input type="checkbox" id="megsp_enabled" class="megsp-check" ${cfg.enabled ? "checked" : ""}></div>
+            <div class="ps-switch"></div>
         </div>
 
-        <div class="meg-sp-settings-row">
-            <div>
-                <div class="label">Hide inline tracker blocks in chat</div>
-                <div class="desc">Removes the <code>&lt;details&gt;</code> tracker blocks from the rendered chat DOM (they stay in the saved message so re-parsing keeps working).</div>
+        <div class="mtab-toggle-row ${cfg.hideInline ? 'active' : ''}" id="megsp_hideinline_row">
+            <div class="toggle-info">
+                <div class="toggle-label">Hide inline tracker blocks in chat</div>
+                <div class="toggle-desc">Removes the <code>&lt;details&gt;</code> tracker blocks from the rendered chat DOM (they stay in the saved message so re-parsing keeps working).</div>
             </div>
-            <div class="control"><input type="checkbox" id="megsp_hideinline" class="megsp-check" ${cfg.hideInline ? "checked" : ""}></div>
+            <div class="ps-switch"></div>
         </div>
 
         <div class="meg-sp-settings-row">
@@ -5286,19 +5286,28 @@ function renderSidePanelTab(c) {
             </div>
         </div>
 
-        <div class="meg-sp-settings-row" style="flex-direction: column; align-items: stretch;">
+        <div class="meg-sp-settings-row" style="flex-direction: column; align-items: stretch; gap: 8px;">
             <div>
                 <div class="label">Sections to show</div>
                 <div class="desc">Toggle individual tracker sections in the side panel.</div>
             </div>
             <div class="meg-sp-section-grid">
-                <label><input type="checkbox" data-section="worldState" ${cfg.sections.worldState ? "checked" : ""}> <i class="fa-solid fa-thumbtack"></i> World State</label>
-                <label><input type="checkbox" data-section="innerChatter" ${cfg.sections.innerChatter ? "checked" : ""}> <i class="fa-solid fa-comment-dots"></i> Inner Chatter</label>
-                <label><input type="checkbox" data-section="summary" ${cfg.sections.summary ? "checked" : ""}> <i class="fa-solid fa-floppy-disk"></i> Summary</label>
-                <label><input type="checkbox" data-section="newNpcs" ${cfg.sections.newNpcs ? "checked" : ""}> <i class="fa-solid fa-user-plus"></i> New NPCs</label>
-                <label><input type="checkbox" data-section="storyPlan" ${cfg.sections.storyPlan ? "checked" : ""}> <i class="fa-solid fa-map"></i> Story Planner</label>
-                <label><input type="checkbox" data-section="npcBank" ${cfg.sections.npcBank ? "checked" : ""}> <i class="fa-solid fa-address-book"></i> NPC Bank</label>
-                <label><input type="checkbox" data-section="banList" ${cfg.sections.banList ? "checked" : ""}> <i class="fa-solid fa-ban"></i> Ban List</label>
+                ${[
+                    { key: "worldState",   icon: "fa-thumbtack",     label: "World State" },
+                    { key: "innerChatter", icon: "fa-comment-dots",  label: "Inner Chatter" },
+                    { key: "summary",      icon: "fa-floppy-disk",   label: "Summary" },
+                    { key: "newNpcs",      icon: "fa-user-plus",     label: "New NPCs" },
+                    { key: "storyPlan",    icon: "fa-map",           label: "Story Planner" },
+                    { key: "npcBank",      icon: "fa-address-book",  label: "NPC Bank" },
+                    { key: "banList",      icon: "fa-ban",           label: "Ban List" },
+                ].map(s => `
+                    <div class="mtab-toggle-row meg-sp-section-toggle ${cfg.sections[s.key] ? 'active' : ''}" data-section="${s.key}">
+                        <div class="toggle-info">
+                            <div class="toggle-label"><i class="fa-solid ${s.icon}" style="color: var(--gold);"></i> ${s.label}</div>
+                        </div>
+                        <div class="ps-switch"></div>
+                    </div>
+                `).join("")}
             </div>
         </div>
 
@@ -5312,14 +5321,16 @@ function renderSidePanelTab(c) {
     `);
 
     // Wire up controls
-    c.find("#megsp_enabled").on("change", function () {
-        cfg.enabled = $(this).is(":checked");
+    c.find("#megsp_enabled_row").on("click", function () {
+        cfg.enabled = !cfg.enabled;
+        $(this).toggleClass("active", cfg.enabled);
         saveSettingsDebounced();
         applyEnabledChange();
         refreshSidePanel();
     });
-    c.find("#megsp_hideinline").on("change", function () {
-        cfg.hideInline = $(this).is(":checked");
+    c.find("#megsp_hideinline_row").on("click", function () {
+        cfg.hideInline = !cfg.hideInline;
+        $(this).toggleClass("active", cfg.hideInline);
         saveSettingsDebounced();
         applyInlineHidingChange();
     });
@@ -5334,9 +5345,10 @@ function renderSidePanelTab(c) {
         saveSettingsDebounced();
         applyWidthChange();
     });
-    c.find("[data-section]").on("change", function () {
+    c.find(".meg-sp-section-toggle").on("click", function () {
         const key = $(this).attr("data-section");
-        cfg.sections[key] = $(this).is(":checked");
+        cfg.sections[key] = !cfg.sections[key];
+        $(this).toggleClass("active", cfg.sections[key]);
         saveSettingsDebounced();
         refreshSidePanel();
     });

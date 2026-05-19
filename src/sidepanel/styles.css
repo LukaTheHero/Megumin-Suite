@@ -494,44 +494,13 @@ body.meg-sp-hide-inline .mes_text details.meg-sp-tracker-block { display: none !
 .meg-sp-settings-row .label { font-weight: 600; }
 .meg-sp-settings-row .desc { color: var(--text-muted, #a1a1aa); font-size: 12px; margin-top: 4px; }
 .meg-sp-settings-row .control { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+/* Section toggle grid — Megumin native .mtab-toggle-row in a responsive grid */
 .meg-sp-section-grid {
-    display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-    gap: 8px; margin-top: 8px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 6px;
+    margin-top: 4px;
 }
-.meg-sp-section-grid label {
-    display: flex; align-items: center; gap: 6px;
-    background: var(--bg-panel); border: 1px solid var(--border-color);
-    padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 12.5px;
-}
-
-input.megsp-check {
-    -webkit-appearance: none;
-    appearance: none;
-    position: relative;
-    width: 40px;
-    height: 22px;
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid var(--border-color, #27272a);
-    border-radius: 999px;
-    cursor: pointer;
-    transition: background 0.15s, border-color 0.15s;
-    margin: 0;
-}
-input.megsp-check::after {
-    content: "";
-    position: absolute;
-    top: 2px; left: 2px;
-    width: 16px; height: 16px;
-    background: #9ca3af;
-    border-radius: 50%;
-    transition: transform 0.18s ease, background 0.18s;
-}
-input.megsp-check:checked {
-    background: rgba(245, 158, 11, 0.25);
-    border-color: var(--meg-sp-accent);
-}
-input.megsp-check:checked::after {
-    background: var(--meg-sp-accent);
-    transform: translateX(18px);
-}
+.meg-sp-section-toggle .toggle-info { flex: 1; }
+.meg-sp-section-toggle .toggle-label { font-size: 13px; }
 
