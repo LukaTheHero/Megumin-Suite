@@ -136,6 +136,11 @@ function buildPanelSkeleton() {
         el("div", { class: "meg-sp-header-actions" },
             el("button", {
                 class: "meg-sp-icon-btn",
+                title: "Open NPC Book",
+                onclick: () => openNpcBook(),
+            }, el("i", { class: "fa-solid fa-book-open" })),
+            el("button", {
+                class: "meg-sp-icon-btn",
                 title: "Refresh from latest message",
                 onclick: () => render(),
             }, el("i", { class: "fa-solid fa-rotate" })),
@@ -317,34 +322,116 @@ function renderStoryPlan(plan) {
     return list;
 }
 
-function renderNpcBank(npcs) {
-    if (!npcs || !npcs.length) return el("div", { class: "meg-sp-muted" }, "No NPCs banked yet.");
-    const wrap = el("div", { class: "meg-sp-bank" });
-    for (const n of npcs) {
-        const head = el("summary", { class: "meg-sp-bank-head" },
-            el("i", { class: "fa-solid fa-address-card" }),
-            " ",
-            (n.name || "Unnamed") + (n.age ? `, ${n.age}` : "") + (n.sex ? ` (${n.sex})` : ""));
-        const fields = [];
-        const addField = (label, val) => {
-            if (!val) return;
-            fields.push(el("div", { class: "meg-sp-field" },
-                el("span", { class: "meg-sp-field-key" }, label + ":"),
-                " ",
-                el("span", { class: "meg-sp-field-val" }, val)));
-        };
-        addField("Occupation", n.occupation);
-        addField("Appearance", n.appearance);
-        addField("Personality", n.personality);
-        addField("Inner Circle", n.innerCircle);
-        addField("Background", n.background);
-        addField("Agenda", n.agenda);
-        addField("Hidden Layer", n.hiddenLayer);
+function isMaleSex(sexStr) {
+    return (sexStr || "").trim().toLowerCase().startsWith("m");
+}
 
-        wrap.appendChild(el("details", { class: "meg-sp-bank-card" },
-            head, el("div", { class: "meg-sp-card-fields" }, fields)));
+function renderNpcBank(npcs) {
+    const wrap = el("div", { class: "meg-sp-bank" });
+
+    // Action row — open the full NPC Book (existing Megumin UI on the NPCs Bank tab)
+    const openBookBtn = el("button", {
+        class: "meg-sp-book-btn",
+        title: "Open the full NPC Book (browse, edit, upload, generate portraits)",
+        onclick: () => openNpcBook(),
+    },
+        el("i", { class: "fa-solid fa-book-open" }),
+        " Open NPC Book",
+        npcs && npcs.length
+            ? el("span", { class: "meg-sp-book-count" }, String(npcs.length))
+            : null,
+    );
+    wrap.appendChild(openBookBtn);
+
+    if (!npcs || !npcs.length) {
+        wrap.appendChild(el("div", { class: "meg-sp-muted", style: { marginTop: "8px" } },
+            "No NPCs banked yet. They get added automatically as the AI introduces them."));
+        return wrap;
     }
+
+    const grid = el("div", { class: "meg-sp-bank-grid" });
+    // Newest first (matches existing UI's reverse-iteration pattern)
+    [...npcs].reverse().forEach((n, revIdx) => {
+        const idx = npcs.length - 1 - revIdx;
+        const male = isMaleSex(n.sex);
+        const accentVar = male ? "var(--meg-sp-npc-male, #3b82f6)" : "var(--meg-sp-npc-female, #f43f5e)";
+        const portrait = n.pfp
+            ? el("img", { class: "meg-sp-npc-pfp", src: n.pfp, alt: n.name || "NPC" })
+            : el("div", { class: "meg-sp-npc-pfp meg-sp-npc-pfp-empty" },
+                el("i", { class: "fa-solid fa-user-secret" }));
+
+        const ageSex = [n.age, n.sex].filter(Boolean).join(" · ");
+
+        const card = el("div", {
+            class: "meg-sp-bank-mini",
+            style: { "--accent": accentVar },
+            title: "Click to open in NPC Book",
+            onclick: () => openNpcBook(idx),
+        },
+            portrait,
+            el("div", { class: "meg-sp-bank-mini-info" },
+                el("div", { class: "meg-sp-bank-mini-name" }, n.name || "Unnamed"),
+                ageSex ? el("div", { class: "meg-sp-bank-mini-meta" }, ageSex) : null,
+                n.occupation
+                    ? el("div", { class: "meg-sp-bank-mini-occ" }, n.occupation)
+                    : null,
+            ),
+        );
+        grid.appendChild(card);
+    });
+    wrap.appendChild(grid);
     return wrap;
+}
+
+/**
+ * Open the existing Megumin Suite settings modal directly on the NPCs Bank
+ * tab. Reuses the existing UI so editing / uploads / portrait generation
+ * keep working — no duplicated logic.
+ *
+ * @param {number} [focusIdx] - Optional NPC index to expand on open.
+ */
+function openNpcBook(focusIdx) {
+    const $overlay = window.jQuery ? window.jQuery("#prompt-slot-modal-overlay") : null;
+    if (!$overlay || !$overlay.length) {
+        // Settings modal hasn't been mounted yet
+        try { (window.toastr || console).info("Open Megumin Suite (wand icon) at least once first.", "NPC Book"); } catch (e) { /* */ }
+        return;
+    }
+
+    // Find the NPCs Bank tab dynamically (tab title-based, not index-based, in
+    // case the order changes upstream).
+    const dock = document.querySelectorAll("#ps_dynamic_dots .dock-icon");
+    let bankIdx = -1;
+    dock.forEach((d, i) => {
+        if ((d.getAttribute("title") || "").trim() === "NPCs Bank") bankIdx = i;
+    });
+
+    // Open modal then switch to tab
+    $overlay.fadeIn(200).css("display", "flex");
+    if (bankIdx >= 0) {
+        const dot = document.getElementById("dot_" + bankIdx);
+        if (dot) dot.click();
+    }
+
+    // If a specific NPC was requested, expand its card after the tab renders
+    if (typeof focusIdx === "number" && focusIdx >= 0) {
+        setTimeout(() => {
+            const cards = document.querySelectorAll("#ps_stage_content .npc-card");
+            // The bank renders newest-first, so we need to figure out the DOM
+            // position from the underlying array index. We match by name.
+            const targetName = (getProfile().npcBank?.npcs || [])[focusIdx]?.name;
+            if (!targetName) return;
+            for (const card of cards) {
+                if ((card.textContent || "").includes(targetName)) {
+                    const header = card.querySelector(".npc-card-header");
+                    const body = card.querySelector(".npc-card-body");
+                    if (header && body && body.style.display === "none") header.click();
+                    card.scrollIntoView({ behavior: "smooth", block: "center" });
+                    break;
+                }
+            }
+        }, 300);
+    }
 }
 
 function renderBanList(items) {
