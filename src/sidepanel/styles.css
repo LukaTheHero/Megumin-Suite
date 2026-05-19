@@ -373,9 +373,9 @@
 
 .meg-sp-bank-grid {
     display: grid;
-    grid-template-columns: 1fr;
-    gap: 6px;
-    margin-top: 4px;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 8px;
+    margin-top: 6px;
 }
 
 .meg-sp-bank-mini {
@@ -397,10 +397,10 @@
     transform: translateX(2px);
 }
 .meg-sp-npc-pfp {
-    width: 42px; height: 42px;
-    border-radius: 6px;
+    width: 54px; height: 54px;
+    border-radius: 50%;
     object-fit: cover;
-    border: 1px solid var(--accent);
+    border: 2px solid var(--accent);
     background: rgba(0, 0, 0, 0.3);
     flex-shrink: 0;
 }

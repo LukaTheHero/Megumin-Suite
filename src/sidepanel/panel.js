@@ -33,7 +33,7 @@ const SETTINGS_KEY = "sidePanel";
 const DEFAULTS = Object.freeze({
     enabled: true,
     position: "right",     // "right" | "left"
-    width: 360,            // px
+    width: 620,            // px
     collapsed: false,
     hideInline: true,
     sections: {
@@ -531,7 +531,7 @@ function render() {
     panel.classList.toggle("meg-sp-collapsed", !!cfg.collapsed);
     panel.classList.remove("meg-sp-pos-left", "meg-sp-pos-right");
     panel.classList.add("meg-sp-pos-" + cfg.position);
-    panel.style.setProperty("--meg-sp-width", (cfg.width || 360) + "px");
+    panel.style.setProperty("--meg-sp-width", (cfg.width || 620) + "px");
     document.body.classList.toggle(BODY_OPEN_CLASS, !cfg.collapsed);
     document.body.classList.toggle(BODY_HIDE_CLASS, !!cfg.hideInline);
 
@@ -589,7 +589,7 @@ function render() {
     if (cfg.sections.npcBank && bank.npcs && bank.npcs.length) {
         host.appendChild(section("npcBank", "fa-address-book", "NPC Bank",
             renderNpcBank(bank.npcs),
-            { open: false, badge: bank.npcs.length }));
+            { open: true, badge: bank.npcs.length }));
     }
     if (cfg.sections.banList && banList && banList.length) {
         host.appendChild(section("banList", "fa-ban", "Ban List",

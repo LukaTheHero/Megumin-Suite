@@ -5281,7 +5281,7 @@ function renderSidePanelTab(c) {
                 <div class="desc">Width in pixels. Mobile clamps to 94% of viewport automatically.</div>
             </div>
             <div class="control">
-                <input id="megsp_width" type="number" min="260" max="640" step="10" value="${cfg.width || 360}" class="ps-modern-input" style="width: 110px;" />
+                <input id="megsp_width" type="number" min="320" max="1100" step="10" value="${cfg.width || 620}" class="ps-modern-input" style="width: 110px;" />
                 <span style="color: var(--text-muted); font-size: 12px;">px</span>
             </div>
         </div>
@@ -5329,7 +5329,7 @@ function renderSidePanelTab(c) {
         applyPositionChange();
     });
     c.find("#megsp_width").on("input change", function () {
-        const v = Math.max(260, Math.min(640, parseInt($(this).val(), 10) || 360));
+        const v = Math.max(320, Math.min(1100, parseInt($(this).val(), 10) || 620));
         cfg.width = v;
         saveSettingsDebounced();
         applyWidthChange();
