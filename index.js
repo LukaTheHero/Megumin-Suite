@@ -6,6 +6,15 @@ import { humanizedDateTime } from "../../../RossAscends-mods.js";
 import { Popup, POPUP_TYPE } from "../../../popup.js";
 import { hardcodedLogic } from "./data/database.js";
 import { KAZUMA_PLACEHOLDERS, RESOLUTIONS } from "./data/image_data.js";
+import {
+    initSidePanel,
+    refreshSidePanel,
+    getSidePanelSettings,
+    applyInlineHidingChange,
+    applyPositionChange,
+    applyWidthChange,
+    applyEnabledChange,
+} from "./src/sidepanel/panel.js";
 
 const extensionName = "Megumin-Suite";
 const extensionFolderPath = `scripts/extensions/third-party/${extensionName}`;
@@ -211,6 +220,7 @@ function saveProfileToMemory() {
     saveSettingsDebounced();
 
     updateLiveTokenCount(); // NEW: Update the UI whenever settings are saved!
+    try { refreshSidePanel(); } catch (e) { /* side panel may not be mounted yet */ }
 
     const saveInd = $("#ps_save_indicator");
     if (saveInd.length) {
@@ -364,15 +374,17 @@ const tabsUI = [
     { title: "Dynamic Ban List", sub: "Scan and ban repetitive AI phrases.", icon: "fa-ban", render: renderBanList },
     { title: "Image Generation", sub: "Wire up ComfyUI to auto-generate scene images during roleplay.", icon: "fa-image", render: renderImageGen },
     { title: "NPCs Bank", sub: "Automatically extract and track significant NPCs in the story.", icon: "fa-address-book", render: renderNpcBank },
-    { title: "Memory Core", sub: "Advanced 3-Tier Context & History Management.", icon: "fa-memory", render: renderMemoryCore }
+    { title: "Memory Core", sub: "Advanced 3-Tier Context & History Management.", icon: "fa-memory", render: renderMemoryCore },
+    { title: "Side Panel", sub: "Pop the tracker blocks out of the chat into a fixed side panel.", icon: "fa-table-columns", render: renderSidePanelTab }
 ];
 
 function switchTab(index) {
     $(".dock").show();
     $("#ps_btn_save_close").show();
 
-    // Hide Apply All on Tab 3 (Writing Style)
-    if (index === 2) { $("#btn_apply_tab_all").hide(); }
+    // Hide Apply All on Writing Style and Side Panel tabs (Side Panel settings are global already)
+    const tabTitle = tabsUI[index] && tabsUI[index].title;
+    if (index === 2 || tabTitle === "Side Panel") { $("#btn_apply_tab_all").hide(); }
     else { $("#btn_apply_tab_all").show(); }
 
     $("#ps_btn_dev_mode").html(`<i class="fa-solid fa-code"></i> Dev`).css("color", "#a855f7");
@@ -5207,6 +5219,133 @@ function renderDevMode(view = "landing", selectedModeId = null, passedModeData =
         });
     }
 }
+// -------------------------------------------------------------
+// SIDE PANEL — Tab renderer
+// Pulls the in-chat tracker blocks (World State, NPC Inner Chatter,
+// Summary, NPC dossiers) out into a fixed side panel.
+// -------------------------------------------------------------
+function renderSidePanelTab(c) {
+    c.empty();
+    const cfg = getSidePanelSettings();
+
+    const enabledBadge = `<div class="mtab-header-badge" style="background: ${cfg.enabled ? 'rgba(245,158,11,0.12)' : 'rgba(255,255,255,0.06)'}; color: ${cfg.enabled ? '#f59e0b' : 'var(--text-muted)'}; border: 1px solid ${cfg.enabled ? 'rgba(245,158,11,0.25)' : 'var(--border-color)'};">
+        <i class="fa-solid fa-${cfg.enabled ? 'circle-check' : 'circle-xmark'}" style="font-size:0.6rem;"></i> ${cfg.enabled ? 'Enabled' : 'Disabled'}
+    </div>`;
+
+    c.append(`
+        <div class="mtab-header">
+            <div class="mtab-header-left">
+                <div class="mtab-header-icon" style="background: linear-gradient(135deg, #f59e0b, #b45309);">
+                    <i class="fa-solid fa-table-columns"></i>
+                </div>
+                <div>
+                    <h2>Side Panel</h2>
+                    <p>Display Megumin's tracker blocks in a fixed panel next to the chat instead of inline. Updates automatically as the AI replies.</p>
+                </div>
+            </div>
+            ${enabledBadge}
+        </div>
+
+        <div class="meg-sp-settings-row">
+            <div>
+                <div class="label">Enable Side Panel</div>
+                <div class="desc">Mounts the panel on the page. When off, trackers stay inline in the chat as usual.</div>
+            </div>
+            <div class="control"><input type="checkbox" id="megsp_enabled" class="megsp-check" ${cfg.enabled ? "checked" : ""}></div>
+        </div>
+
+        <div class="meg-sp-settings-row">
+            <div>
+                <div class="label">Hide inline tracker blocks in chat</div>
+                <div class="desc">Removes the <code>&lt;details&gt;</code> tracker blocks from the rendered chat DOM (they stay in the saved message so re-parsing keeps working).</div>
+            </div>
+            <div class="control"><input type="checkbox" id="megsp_hideinline" class="megsp-check" ${cfg.hideInline ? "checked" : ""}></div>
+        </div>
+
+        <div class="meg-sp-settings-row">
+            <div>
+                <div class="label">Panel position</div>
+                <div class="desc">Which edge of the screen the panel anchors to.</div>
+            </div>
+            <div class="control">
+                <select id="megsp_position" class="ps-modern-input" style="min-width: 140px;">
+                    <option value="right" ${cfg.position === "right" ? "selected" : ""}>Right</option>
+                    <option value="left" ${cfg.position === "left" ? "selected" : ""}>Left</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="meg-sp-settings-row">
+            <div>
+                <div class="label">Panel width</div>
+                <div class="desc">Width in pixels. Mobile clamps to 94% of viewport automatically.</div>
+            </div>
+            <div class="control">
+                <input id="megsp_width" type="number" min="260" max="640" step="10" value="${cfg.width || 360}" class="ps-modern-input" style="width: 110px;" />
+                <span style="color: var(--text-muted); font-size: 12px;">px</span>
+            </div>
+        </div>
+
+        <div class="meg-sp-settings-row" style="flex-direction: column; align-items: stretch;">
+            <div>
+                <div class="label">Sections to show</div>
+                <div class="desc">Toggle individual tracker sections in the side panel.</div>
+            </div>
+            <div class="meg-sp-section-grid">
+                <label><input type="checkbox" data-section="worldState" ${cfg.sections.worldState ? "checked" : ""}> <i class="fa-solid fa-thumbtack"></i> World State</label>
+                <label><input type="checkbox" data-section="innerChatter" ${cfg.sections.innerChatter ? "checked" : ""}> <i class="fa-solid fa-comment-dots"></i> Inner Chatter</label>
+                <label><input type="checkbox" data-section="summary" ${cfg.sections.summary ? "checked" : ""}> <i class="fa-solid fa-floppy-disk"></i> Summary</label>
+                <label><input type="checkbox" data-section="newNpcs" ${cfg.sections.newNpcs ? "checked" : ""}> <i class="fa-solid fa-user-plus"></i> New NPCs</label>
+                <label><input type="checkbox" data-section="storyPlan" ${cfg.sections.storyPlan ? "checked" : ""}> <i class="fa-solid fa-map"></i> Story Planner</label>
+                <label><input type="checkbox" data-section="npcBank" ${cfg.sections.npcBank ? "checked" : ""}> <i class="fa-solid fa-address-book"></i> NPC Bank</label>
+                <label><input type="checkbox" data-section="banList" ${cfg.sections.banList ? "checked" : ""}> <i class="fa-solid fa-ban"></i> Ban List</label>
+            </div>
+        </div>
+
+        <div class="meg-sp-settings-row">
+            <div>
+                <div class="label">Force refresh</div>
+                <div class="desc">Re-parse the latest assistant message and rebuild the panel right now.</div>
+            </div>
+            <div class="control"><button id="megsp_refresh" class="ps-modern-btn primary"><i class="fa-solid fa-rotate"></i> Refresh</button></div>
+        </div>
+    `);
+
+    // Wire up controls
+    c.find("#megsp_enabled").on("change", function () {
+        cfg.enabled = $(this).is(":checked");
+        saveSettingsDebounced();
+        applyEnabledChange();
+        refreshSidePanel();
+    });
+    c.find("#megsp_hideinline").on("change", function () {
+        cfg.hideInline = $(this).is(":checked");
+        saveSettingsDebounced();
+        applyInlineHidingChange();
+    });
+    c.find("#megsp_position").on("change", function () {
+        cfg.position = $(this).val();
+        saveSettingsDebounced();
+        applyPositionChange();
+    });
+    c.find("#megsp_width").on("input change", function () {
+        const v = Math.max(260, Math.min(640, parseInt($(this).val(), 10) || 360));
+        cfg.width = v;
+        saveSettingsDebounced();
+        applyWidthChange();
+    });
+    c.find("[data-section]").on("change", function () {
+        const key = $(this).attr("data-section");
+        cfg.sections[key] = $(this).is(":checked");
+        saveSettingsDebounced();
+        refreshSidePanel();
+    });
+    c.find("#megsp_refresh").on("click", function () {
+        refreshSidePanel();
+        toastr.success("Side panel refreshed", "Megumin Suite");
+    });
+}
+
 // UNIFIED DEV BUTTON CLICK LISTENER
 $("body").off("click", "#ps_btn_dev_mode").on("click", "#ps_btn_dev_mode", function (e) {
     e.preventDefault();
@@ -5223,6 +5362,10 @@ $("body").off("click", "#ps_btn_dev_mode").on("click", "#ps_btn_dev_mode", funct
 
 jQuery(async () => {
     try {
+        // Initialise the side panel (mounts the DOM, hooks ST events, parses the latest message)
+        // It reads from localProfile lazily so storyPlan/npcBank/banList stay live.
+        initSidePanel({ profileGetter: () => localProfile });
+
         const h = await $.get(`${extensionFolderPath}/example.html`);
         $("body").append(h);
         $("body").append('<div id="ps-global-tooltip"></div>');
