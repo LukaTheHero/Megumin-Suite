@@ -54,6 +54,13 @@ let pendingRender = null;
 // -----------------------------------------------------------------------------
 // Settings
 // -----------------------------------------------------------------------------
+// One-time migrations: bump values that were saved at a prior default which
+// has since been raised. Only fires when the saved value matches an *old*
+// default exactly — preserves any custom value the user picked.
+const LEGACY_DEFAULTS = Object.freeze({
+    width: [360], // historic default widths
+});
+
 function settings() {
     if (!extension_settings[EXT_NAME]) extension_settings[EXT_NAME] = {};
     if (!extension_settings[EXT_NAME][SETTINGS_KEY]) {
@@ -68,6 +75,10 @@ function settings() {
         if (!cur.sections) cur.sections = structuredClone(def.sections);
         for (const k of Object.keys(def.sections)) {
             if (cur.sections[k] === undefined) cur.sections[k] = def.sections[k];
+        }
+        // Migrate any field still sitting on a retired default
+        for (const [k, legacyVals] of Object.entries(LEGACY_DEFAULTS)) {
+            if (legacyVals.includes(cur[k]) && cur[k] !== def[k]) cur[k] = def[k];
         }
     }
     return extension_settings[EXT_NAME][SETTINGS_KEY];
