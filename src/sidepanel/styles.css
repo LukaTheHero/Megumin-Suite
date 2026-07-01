@@ -1,129 +1,376 @@
 /* =============================================================
    Megumin Suite — Side Panel
+   Design tokens + legacy aliases. Everything below the alias block
+   may reference either generation of variable names.
    ============================================================= */
 
 :root {
-    --meg-sp-bg: rgba(14, 14, 17, 0.92);
-    --meg-sp-bg-solid: #0e0e11;
-    --meg-sp-panel: #18181b;
+    /* ── Surfaces ── */
+    --meg-bg-0: #0c0c0f;
+    --meg-bg-1: #121215;
+    --meg-bg-2: #18181c;
+    --meg-bg-3: #1e1e23;
+    --meg-bg-4: #26262c;
+    --meg-bg-glass: rgba(12, 12, 15, 0.90);
+
+    /* ── Gold ramp ── */
+    --meg-gold-200: #fde68a;
+    --meg-gold-300: #fcd34d;
+    --meg-gold-400: #fbbf24;
+    --meg-gold-500: #f59e0b;
+    --meg-gold-600: #d97706;
+    --meg-gold-a05: rgba(245, 158, 11, 0.05);
+    --meg-gold-a08: rgba(245, 158, 11, 0.08);
+    --meg-gold-a12: rgba(245, 158, 11, 0.12);
+    --meg-gold-a20: rgba(245, 158, 11, 0.20);
+    --meg-gold-a35: rgba(245, 158, 11, 0.35);
+
+    /* ── Text ── */
+    --meg-text-hi: #f4f4f5;
+    --meg-text-mid: #c8c8ce;
+    --meg-text-lo: #a1a1aa;
+    --meg-text-faint: #6b6b74;
+
+    /* ── Hairlines ── */
+    --meg-line-1: rgba(255, 255, 255, 0.06);
+    --meg-line-2: rgba(255, 255, 255, 0.10);
+    --meg-line-gold: rgba(245, 158, 11, 0.28);
+
+    /* ── Semantic ── */
+    --meg-c-male: #3b82f6;
+    --meg-c-female: #f43f5e;
+    --meg-c-success: #10b981;
+    --meg-c-danger: #ef4444;
+    --meg-c-info: #818cf8;
+
+    /* ── Spacing / radius ── */
+    --meg-space-1: 2px;  --meg-space-2: 4px;  --meg-space-3: 6px;
+    --meg-space-4: 8px;  --meg-space-5: 10px; --meg-space-6: 12px;
+    --meg-space-7: 16px; --meg-space-8: 20px;
+    --meg-r-xs: 4px; --meg-r-sm: 6px; --meg-r-md: 8px;
+    --meg-r-lg: 10px; --meg-r-xl: 14px; --meg-r-full: 999px;
+
+    /* ── Elevation ── */
+    --meg-inset-hi: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    --meg-e-1: 0 1px 3px rgba(0, 0, 0, 0.4);
+    --meg-e-2: 0 4px 12px rgba(0, 0, 0, 0.45);
+    --meg-e-3: 0 12px 36px rgba(0, 0, 0, 0.55);
+    --meg-e-4: 0 24px 64px rgba(0, 0, 0, 0.65);
+    --meg-glow-gold: 0 0 14px rgba(245, 158, 11, 0.22);
+
+    /* ── Typography ── */
+    --meg-font: 'Inter', system-ui, -apple-system, sans-serif;
+    --meg-fs-2xs: 10px; --meg-fs-xs: 11px; --meg-fs-sm: 12px;
+    --meg-fs-md: 13px;  --meg-fs-lg: 15px; --meg-fs-xl: 18px; --meg-fs-2xl: 22px;
+    --meg-fw-reg: 450; --meg-fw-med: 550; --meg-fw-bold: 700; --meg-fw-black: 800;
+    --meg-lh-tight: 1.25; --meg-lh-normal: 1.45; --meg-lh-loose: 1.6;
+    --meg-track-caps: 0.7px;
+
+    /* ── Motion ── */
+    --meg-ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+    --meg-ease-spring: cubic-bezier(0.34, 1.4, 0.44, 1);
+    --meg-t-fast: 0.14s;
+    --meg-t-med: 0.24s;
+    --meg-t-slow: 0.38s;
+
+    /* ── Chrome (window management) ── */
+    --meg-sp-scale: 1;
+    --meg-sp-min-w: 320px;
+    --meg-sp-min-h: 240px;
+    --meg-sp-handle-hit: 6px;
+    --meg-sp-z-fab: 9490;
+    --meg-sp-z-panel: 9500;
+    --meg-sp-z-panel-active: 9510;
+    --meg-sp-z-dragging: 9600;
+    --meg-sp-z-sheet: 10500;
+
+    /* ── Legacy aliases (older selectors below reference these) ── */
+    --meg-sp-bg: var(--meg-bg-glass);
+    --meg-sp-bg-solid: var(--meg-bg-0);
+    --meg-sp-panel: var(--meg-bg-2);
     --meg-sp-border: #2d2d33;
-    --meg-sp-border-soft: rgba(255, 255, 255, 0.06);
-    --meg-sp-text: #f4f4f5;
-    --meg-sp-muted: #a1a1aa;
-    --meg-sp-accent: #f59e0b;
-    --meg-sp-accent-soft: rgba(245, 158, 11, 0.18);
+    --meg-sp-border-soft: var(--meg-line-1);
+    --meg-sp-text: var(--meg-text-hi);
+    --meg-sp-muted: var(--meg-text-lo);
+    --meg-sp-accent: var(--meg-gold-500);
+    --meg-sp-accent-soft: var(--meg-gold-a20);
     --meg-sp-card: #1c1c20;
     --meg-sp-card-2: #222227;
-    --meg-sp-width: 360px;
-    --meg-sp-radius: 10px;
+    --meg-sp-width: 620px;
+    --meg-sp-radius: var(--meg-r-lg);
     --meg-sp-fab-size: 46px;
-    --meg-sp-shadow: 0 12px 36px rgba(0, 0, 0, 0.55);
+    --meg-sp-shadow: var(--meg-e-3);
+    --meg-sp-npc-male: var(--meg-c-male);
+    --meg-sp-npc-female: var(--meg-c-female);
 }
 
+@media (pointer: coarse) {
+    :root { --meg-sp-handle-hit: 14px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    #meg-sp-panel, #meg-sp-panel *, #meg-pb-wrapper, #meg-pb-wrapper *,
+    .meg-pb-sheet, .meg-pb-sheet * {
+        transition-duration: 0s !important;
+        animation-duration: 0s !important;
+    }
+}
+
+/* =============================================================
+   Panel shell — docked + floating
+   ============================================================= */
 #meg-sp-panel {
     position: fixed;
     top: 64px;
     bottom: 16px;
     width: var(--meg-sp-width);
     max-width: 92vw;
-    background: var(--meg-sp-bg);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-    color: var(--meg-sp-text);
+    background: var(--meg-bg-glass);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    color: var(--meg-text-hi);
     border: 1px solid var(--meg-sp-border);
-    border-radius: var(--meg-sp-radius);
-    box-shadow: var(--meg-sp-shadow);
-    z-index: 9500;
+    border-radius: var(--meg-r-lg);
+    box-shadow: var(--meg-e-3), var(--meg-inset-hi);
+    z-index: var(--meg-sp-z-panel);
     display: flex;
     flex-direction: column;
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
-    font-size: 13px;
-    line-height: 1.45;
-    transition: transform 0.25s ease, opacity 0.2s ease;
+    font-family: var(--meg-font);
+    font-size: var(--meg-fs-md);
+    line-height: var(--meg-lh-normal);
+    transition: transform var(--meg-t-med) var(--meg-ease-out), opacity var(--meg-t-fast) ease;
+    zoom: var(--meg-sp-scale);
 }
 #meg-sp-panel.meg-sp-pos-right { right: 16px; }
 #meg-sp-panel.meg-sp-pos-left { left: 16px; }
 #meg-sp-panel.meg-sp-collapsed { transform: translateX(120%); pointer-events: none; opacity: 0; }
 #meg-sp-panel.meg-sp-pos-left.meg-sp-collapsed { transform: translateX(-120%); }
 
+/* Floating mode — geometry from inline vars set by chrome.js */
+#meg-sp-panel[data-mode="floating"] {
+    top: var(--meg-sp-float-y, 96px);
+    left: var(--meg-sp-float-x, auto);
+    width: var(--meg-sp-float-w, 620px);
+    height: var(--meg-sp-float-h, 720px);
+    right: auto;
+    bottom: auto;
+    max-width: none;
+    min-width: var(--meg-sp-min-w);
+    min-height: var(--meg-sp-min-h);
+    background: var(--meg-bg-0);
+    border-radius: var(--meg-r-xl);
+    box-shadow: var(--meg-e-4), 0 0 0 1px var(--meg-gold-a08), var(--meg-inset-hi);
+}
+#meg-sp-panel[data-mode="floating"].meg-sp-collapsed { transform: translateY(-8px) scale(0.98); }
+#meg-sp-panel[data-mode="floating"] .meg-sp-header { cursor: grab; touch-action: none; }
+#meg-sp-panel.meg-sp-dragging {
+    transition: none;
+    z-index: var(--meg-sp-z-panel-active);
+    will-change: transform;
+}
+#meg-sp-panel.meg-sp-dragging .meg-sp-header { cursor: grabbing; }
+#meg-sp-panel.meg-sp-resizing {
+    transition: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    z-index: var(--meg-sp-z-panel-active);
+}
+body.meg-sp-gesturing { user-select: none; }
+
+/* Resize handles */
+.meg-sp-rz { position: absolute; z-index: 2; touch-action: none; }
+.meg-sp-rz-dock {
+    top: 0; bottom: 0;
+    width: var(--meg-sp-handle-hit);
+    cursor: ew-resize;
+    transition: background var(--meg-t-fast);
+}
+.meg-sp-rz-se {
+    right: 0; bottom: 0;
+    width: 14px; height: 14px;
+    cursor: nwse-resize;
+    border-radius: 0 0 var(--meg-r-xl) 0;
+}
+.meg-sp-rz:hover { background: var(--meg-gold-a12); }
+
 @media (max-width: 768px) {
     #meg-sp-panel { top: 56px; bottom: 8px; width: min(94vw, 380px); }
     #meg-sp-panel.meg-sp-pos-right { right: 8px; }
     #meg-sp-panel.meg-sp-pos-left { left: 8px; }
+    .meg-sp-mode-btn, .meg-sp-rz-dock { display: none; }
 }
 
+/* =============================================================
+   Header
+   ============================================================= */
 .meg-sp-header {
+    position: relative;
     display: flex; align-items: center; justify-content: space-between;
-    gap: 8px;
-    padding: 10px 12px;
-    border-bottom: 1px solid var(--meg-sp-border);
-    background: linear-gradient(180deg, rgba(245,158,11,0.08), transparent);
-    border-radius: var(--meg-sp-radius) var(--meg-sp-radius) 0 0;
+    gap: var(--meg-space-4);
+    min-height: 44px;
+    padding: 0 var(--meg-space-6);
+    background: linear-gradient(180deg, var(--meg-gold-a08), transparent);
+    border-radius: var(--meg-r-lg) var(--meg-r-lg) 0 0;
+    flex-shrink: 0;
+}
+.meg-sp-header::after {
+    content: "";
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--meg-line-gold), transparent);
 }
 .meg-sp-title {
-    font-weight: 700; font-size: 13px;
-    display: flex; align-items: center; gap: 6px;
-    color: var(--meg-sp-text);
+    font-weight: var(--meg-fw-bold); font-size: var(--meg-fs-md);
+    display: flex; align-items: center; gap: var(--meg-space-3);
+    color: var(--meg-text-hi);
+    letter-spacing: 0.2px;
 }
-.meg-sp-title i { color: var(--meg-sp-accent); }
-.meg-sp-header-actions { display: flex; gap: 4px; }
+.meg-sp-title i { color: var(--meg-gold-500); filter: drop-shadow(0 0 6px var(--meg-gold-a35)); }
+.meg-sp-header-actions { display: flex; gap: var(--meg-space-2); }
 .meg-sp-icon-btn {
     width: 28px; height: 28px;
     display: inline-flex; align-items: center; justify-content: center;
-    background: transparent; color: var(--meg-sp-muted);
-    border: 1px solid var(--meg-sp-border);
-    border-radius: 6px; cursor: pointer;
-    transition: background 0.15s, color 0.15s, border-color 0.15s;
-    font-size: 12px;
+    background: transparent; color: var(--meg-text-lo);
+    border: 1px solid transparent;
+    border-radius: var(--meg-r-sm); cursor: pointer;
+    transition: background var(--meg-t-fast), color var(--meg-t-fast), border-color var(--meg-t-fast), transform var(--meg-t-fast);
+    font-size: var(--meg-fs-sm);
 }
-.meg-sp-icon-btn:hover { background: var(--meg-sp-accent-soft); color: var(--meg-sp-accent); border-color: var(--meg-sp-accent); }
+.meg-sp-icon-btn:hover {
+    background: var(--meg-gold-a12);
+    color: var(--meg-gold-400);
+    border-color: var(--meg-gold-a35);
+}
+.meg-sp-icon-btn:active { transform: scale(0.92); }
+.meg-sp-icon-btn:focus-visible {
+    outline: 2px solid var(--meg-gold-a35);
+    outline-offset: 1px;
+}
 
+/* =============================================================
+   Body + scrollbars
+   ============================================================= */
 .meg-sp-body {
     flex: 1;
     overflow-y: auto;
-    padding: 12px;
+    padding: var(--meg-space-6);
     scrollbar-width: thin;
-    scrollbar-color: #444 transparent;
+    scrollbar-color: var(--meg-bg-4) transparent;
 }
 .meg-sp-body::-webkit-scrollbar { width: 7px; }
-.meg-sp-body::-webkit-scrollbar-thumb { background: #444; border-radius: 4px; }
+.meg-sp-body::-webkit-scrollbar-thumb {
+    background: var(--meg-bg-4);
+    border-radius: var(--meg-r-xs);
+    transition: background var(--meg-t-fast);
+}
+.meg-sp-body:hover::-webkit-scrollbar-thumb { background: var(--meg-gold-a35); }
+.meg-sp-body::-webkit-scrollbar-track { background: transparent; }
 
 .meg-sp-empty {
-    text-align: center; padding: 32px 12px; color: var(--meg-sp-muted);
+    text-align: center; padding: 40px 14px; color: var(--meg-text-lo);
 }
-.meg-sp-empty i { font-size: 32px; opacity: 0.5; margin-bottom: 10px; display: block; }
-.meg-sp-empty p { margin: 0; font-size: 12px; line-height: 1.55; }
+.meg-sp-empty i {
+    font-size: 34px; opacity: 0.45; margin-bottom: 12px; display: block;
+    color: var(--meg-gold-500);
+}
+.meg-sp-empty p { margin: 0; font-size: var(--meg-fs-sm); line-height: var(--meg-lh-loose); }
 
-.meg-sp-sections { display: flex; flex-direction: column; gap: 8px; }
+/* =============================================================
+   Sections (accordion cards)
+   ============================================================= */
+.meg-sp-sections { display: flex; flex-direction: column; gap: var(--meg-space-4); }
 .meg-sp-section {
-    background: var(--meg-sp-card);
+    position: relative;
+    background: linear-gradient(180deg, var(--meg-bg-3), var(--meg-bg-2));
     border: 1px solid var(--meg-sp-border);
-    border-radius: 8px;
+    border-radius: var(--meg-r-md);
     overflow: hidden;
+    box-shadow: var(--meg-e-1), var(--meg-inset-hi);
+    transition: border-color var(--meg-t-fast);
+}
+.meg-sp-section:hover { border-color: var(--meg-line-2); }
+.meg-sp-section[open] {
+    border-color: var(--meg-gold-a20);
+}
+.meg-sp-section[open]::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 2px;
+    background: linear-gradient(180deg, var(--meg-gold-500), transparent 70%);
+    pointer-events: none;
 }
 .meg-sp-section > summary.meg-sp-summary {
     list-style: none;
     cursor: pointer;
     user-select: none;
-    padding: 8px 10px;
-    display: flex; align-items: center; justify-content: space-between;
-    gap: 8px;
-    background: linear-gradient(180deg, rgba(255,255,255,0.04), transparent);
-    border-bottom: 1px solid transparent;
-    transition: background 0.15s;
+    padding: var(--meg-space-4) var(--meg-space-5);
+    display: flex; align-items: center;
+    gap: var(--meg-space-4);
+    background: transparent;
+    transition: background var(--meg-t-fast);
 }
-.meg-sp-section[open] > summary.meg-sp-summary { border-bottom-color: var(--meg-sp-border-soft); }
-.meg-sp-section > summary.meg-sp-summary:hover { background: rgba(245, 158, 11, 0.08); }
+.meg-sp-section[open] > summary.meg-sp-summary {
+    border-bottom: 1px solid var(--meg-line-1);
+}
+.meg-sp-section > summary.meg-sp-summary:hover { background: var(--meg-gold-a05); }
 .meg-sp-section > summary.meg-sp-summary::-webkit-details-marker { display: none; }
-.meg-sp-summary-title { font-weight: 600; display: flex; align-items: center; gap: 6px; }
-.meg-sp-summary-title i { color: var(--meg-sp-accent); width: 14px; text-align: center; }
+
+.meg-sp-drag-handle {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 16px;
+    color: var(--meg-text-faint);
+    font-size: var(--meg-fs-2xs);
+    cursor: grab;
+    touch-action: none;
+    border-radius: var(--meg-r-xs);
+    transition: color var(--meg-t-fast);
+    flex-shrink: 0;
+}
+.meg-sp-drag-handle:hover,
+.meg-sp-drag-handle:focus-visible { color: var(--meg-gold-500); outline: none; }
+
+.meg-sp-summary-title {
+    font-weight: var(--meg-fw-bold);
+    font-size: var(--meg-fs-sm);
+    display: flex; align-items: center; gap: var(--meg-space-3);
+    flex: 1;
+    min-width: 0;
+    letter-spacing: 0.2px;
+}
+.meg-sp-summary-title i { color: var(--meg-gold-500); width: 15px; text-align: center; }
+
 .meg-sp-badge {
-    background: var(--meg-sp-accent-soft); color: var(--meg-sp-accent);
-    padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 700;
-    border: 1px solid var(--meg-sp-accent);
+    background: var(--meg-gold-a12);
+    color: var(--meg-gold-400);
+    padding: 1px 8px;
+    border-radius: var(--meg-r-full);
+    font-size: var(--meg-fs-xs);
+    font-weight: var(--meg-fw-bold);
+    border: 1px solid var(--meg-gold-a35);
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+}
+@keyframes meg-badge-pulse {
+    0%   { transform: scale(1);    box-shadow: 0 0 0 0 var(--meg-gold-a35); }
+    45%  { transform: scale(1.18); box-shadow: 0 0 0 6px transparent; }
+    100% { transform: scale(1);    box-shadow: 0 0 0 0 transparent; }
+}
+.meg-sp-badge-pulse { animation: meg-badge-pulse 0.55s var(--meg-ease-spring); }
+
+.meg-sp-chevron {
+    color: var(--meg-text-faint);
+    font-size: var(--meg-fs-2xs);
+    transition: transform var(--meg-t-med) var(--meg-ease-out), color var(--meg-t-fast);
+    flex-shrink: 0;
+}
+.meg-sp-section[open] > summary .meg-sp-chevron {
+    transform: rotate(180deg);
+    color: var(--meg-gold-500);
 }
 
-.meg-sp-section > *:not(summary) { padding: 10px; }
+.meg-sp-section > *:not(summary) { padding: var(--meg-space-5); }
 
 .meg-sp-ws-meta {
     display: grid;
@@ -920,15 +1167,79 @@ body.meg-sp-hide-inline .mes_text details.meg-sp-tracker-block { display: none !
 
 /* Click affordance for portrait cards */
 .meg-pb-card { cursor: pointer; }
-.meg-pb-card::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(135deg, transparent 60%, rgba(245,158,11,0.0));
-    transition: background 0.2s;
-    pointer-events: none;
+
+/* =============================================================
+   Settings tab helpers (Side Panel tab in the Megumin modal)
+   ============================================================= */
+.meg-sp-group-head {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--meg-gold-500);
+    margin: 18px 0 8px;
+    font-weight: var(--meg-fw-bold);
+    display: flex; align-items: center; gap: 6px;
+    padding-top: 14px;
+    border-top: 1px dashed var(--border-color, #27272a);
 }
-.meg-pb-card:hover::after {
-    background: linear-gradient(135deg, transparent 60%, rgba(245,158,11,0.18));
+.meg-sp-group-head:first-of-type { border-top: none; padding-top: 0; margin-top: 0; }
+.meg-sp-order-num {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 18px; height: 18px;
+    padding: 0 5px;
+    background: var(--meg-gold-a12);
+    color: var(--meg-gold-400);
+    border-radius: var(--meg-r-full);
+    font-size: 10px;
+    font-weight: var(--meg-fw-black);
+    font-variant-numeric: tabular-nums;
+    margin-right: 6px;
 }
+
+/* =============================================================
+   Micro-interactions
+   ============================================================= */
+
+/* Smooth accordion open/close — Chromium 129+; degrades to instant elsewhere */
+@supports (interpolate-size: allow-keywords) {
+    .meg-sp-section { interpolate-size: allow-keywords; }
+    .meg-sp-section::details-content {
+        transition: content-visibility var(--meg-t-med) allow-discrete,
+                    block-size var(--meg-t-med) var(--meg-ease-out);
+        block-size: 0;
+        overflow: clip;
+    }
+    .meg-sp-section[open]::details-content { block-size: auto; }
+}
+
+/* Thought bubble idle bob */
+@keyframes meg-bubble-bob {
+    0%, 100% { transform: translateY(0); }
+    50%       { transform: translateY(-1.5px); }
+}
+.meg-sp-thought:hover .meg-sp-bubble-1 { animation: meg-bubble-bob 1.4s ease-in-out infinite; }
+.meg-sp-thought:hover .meg-sp-bubble-2 { animation: meg-bubble-bob 1.4s ease-in-out 0.2s infinite; }
+
+/* Character sheet field entrance stagger */
+.meg-pb-sheet-shown .meg-pb-sheet-field {
+    animation: meg-field-in 0.3s var(--meg-ease-out) both;
+}
+.meg-pb-sheet-shown .meg-pb-sheet-field:nth-child(1) { animation-delay: 0.02s; }
+.meg-pb-sheet-shown .meg-pb-sheet-field:nth-child(2) { animation-delay: 0.05s; }
+.meg-pb-sheet-shown .meg-pb-sheet-field:nth-child(3) { animation-delay: 0.08s; }
+.meg-pb-sheet-shown .meg-pb-sheet-field:nth-child(4) { animation-delay: 0.11s; }
+.meg-pb-sheet-shown .meg-pb-sheet-field:nth-child(5) { animation-delay: 0.14s; }
+.meg-pb-sheet-shown .meg-pb-sheet-field:nth-child(n+6) { animation-delay: 0.17s; }
+@keyframes meg-field-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* FAB polish */
+#meg-sp-fab {
+    transition: transform var(--meg-t-fast) var(--meg-ease-spring),
+                background var(--meg-t-fast), color var(--meg-t-fast),
+                box-shadow var(--meg-t-fast);
+}
+#meg-sp-fab:hover { box-shadow: var(--meg-e-2), var(--meg-glow-gold); }
 

@@ -1,13 +1,16 @@
 /* eslint-disable no-undef */
 /*
- * Megumin Suite — Side Panel
+ * Megumin Suite — Side Panel (orchestrator)
  *
- * Mounts a fixed side panel that mirrors the trackers Megumin already emits
+ * Mounts a dockable/floatable panel that mirrors the trackers Megumin emits
  * inline in chat (World State, NPC Inner Chatter, Summary, New NPC dossiers)
  * plus profile-stored data (Story Planner, NPC Bank, Ban List).
  *
- * No preset changes needed — we parse the same <details> blocks the AI is
- * already writing, and optionally strip them from the rendered chat DOM.
+ * Section content lives in sections.js (SECTION_REGISTRY); window management
+ * (drag/resize/dock-float/scale) lives in chrome.js; shared DOM helpers in
+ * dom.js. This module owns: settings + migration, the panel skeleton, the
+ * render loop, SillyTavern event wiring, inline-block stripping, and the
+ * public API consumed by index.js.
  */
 
 import { extension_settings, getContext } from "../../../../../extensions.js";
@@ -17,11 +20,16 @@ import {
     saveSettingsDebounced,
 } from "../../../../../../script.js";
 
+import { findLastAssistantMessage, parseMessage } from "./parsers.js";
+import { el } from "./dom.js";
+import { SECTION_REGISTRY } from "./sections.js";
 import {
-    findLastAssistantMessage,
-    parseMessage,
-    ALL_TRACKER_BLOCKS_REGEX,
-} from "./parsers.js";
+    initPanelChrome,
+    applyLayout,
+    applyScale,
+    setMode,
+    clampToViewport,
+} from "./chrome.js";
 import {
     initPresentBar,
     refreshPresentBar,
@@ -37,94 +45,82 @@ const BODY_OPEN_CLASS = "meg-sp-panel-open";
 const SETTINGS_KEY = "sidePanel";
 
 const DEFAULTS = Object.freeze({
+    schemaVersion: 2,
     enabled: true,
-    position: "right",     // "right" | "left"
-    width: 620,            // px
+    mode: "docked",              // "docked" | "floating"
+    position: "right",           // docked edge
+    width: 620,                  // docked width px
     collapsed: false,
     hideInline: true,
+    scale: 1.0,                  // 0.8–1.4
+    autoHideEmpty: true,
+    float: { x: null, y: null, w: 620, h: 720 },
     sections: {
-        worldState: true,
-        innerChatter: true,
-        summary: true,
-        newNpcs: true,
-        storyPlan: true,
-        npcBank: true,
-        banList: true,
+        worldState:   { visible: true, open: true,  order: 0 },
+        innerChatter: { visible: true, open: true,  order: 1 },
+        summary:      { visible: true, open: true,  order: 2 },
+        newNpcs:      { visible: true, open: true,  order: 3 },
+        storyPlan:    { visible: true, open: false, order: 4 },
+        npcBank:      { visible: true, open: true,  order: 5 },
+        banList:      { visible: true, open: false, order: 6 },
     },
 });
 
 let initialised = false;
-let getProfile = () => ({});   // Injected by index.js so we can read storyPlan/npcBank/banList
+let getProfile = () => ({});   // Injected by index.js
 let pendingRender = null;
+let suppressToggle = false;    // guards <details> toggle persistence during rebuild
+const lastBadgeCounts = new Map();
 
 // -----------------------------------------------------------------------------
-// Settings
+// Settings + migration
 // -----------------------------------------------------------------------------
-// One-time migrations: bump values that were saved at a prior default which
-// has since been raised. Only fires when the saved value matches an *old*
-// default exactly — preserves any custom value the user picked.
 const LEGACY_DEFAULTS = Object.freeze({
     width: [360], // historic default widths
 });
+
+function migrateSidePanelSettings(cur) {
+    if ((cur.schemaVersion | 0) >= 2) return;
+    // v1 → v2: sections were booleans; now {visible, open, order}
+    for (const def of SECTION_REGISTRY) {
+        const v = cur.sections[def.id];
+        if (typeof v === "boolean") {
+            cur.sections[def.id] = { visible: v, open: def.defaultOpen, order: def.order };
+        } else if (v === undefined) {
+            cur.sections[def.id] = { visible: true, open: def.defaultOpen, order: def.order };
+        }
+    }
+    cur.schemaVersion = 2;
+}
 
 function settings() {
     if (!extension_settings[EXT_NAME]) extension_settings[EXT_NAME] = {};
     if (!extension_settings[EXT_NAME][SETTINGS_KEY]) {
         extension_settings[EXT_NAME][SETTINGS_KEY] = structuredClone(DEFAULTS);
     } else {
-        // Backfill any new keys
         const cur = extension_settings[EXT_NAME][SETTINGS_KEY];
         const def = DEFAULTS;
         for (const k of Object.keys(def)) {
             if (cur[k] === undefined) cur[k] = structuredClone(def[k]);
         }
         if (!cur.sections) cur.sections = structuredClone(def.sections);
-        for (const k of Object.keys(def.sections)) {
-            if (cur.sections[k] === undefined) cur.sections[k] = def.sections[k];
-        }
-        // Migrate any field still sitting on a retired default
         for (const [k, legacyVals] of Object.entries(LEGACY_DEFAULTS)) {
             if (legacyVals.includes(cur[k]) && cur[k] !== def[k]) cur[k] = def[k];
         }
+        migrateSidePanelSettings(cur);
+        // Backfill sections added after migration stamped v2
+        for (const sd of SECTION_REGISTRY) {
+            if (cur.sections[sd.id] === undefined) {
+                cur.sections[sd.id] = { visible: true, open: sd.defaultOpen, order: sd.order };
+            }
+        }
+        if (!cur.float || typeof cur.float !== "object") cur.float = structuredClone(def.float);
     }
     return extension_settings[EXT_NAME][SETTINGS_KEY];
 }
 
 function persist() {
     try { saveSettingsDebounced(); } catch (e) { /* noop */ }
-}
-
-// -----------------------------------------------------------------------------
-// DOM helpers
-// -----------------------------------------------------------------------------
-function el(tag, attrs = {}, ...children) {
-    const e = document.createElement(tag);
-    for (const [k, v] of Object.entries(attrs)) {
-        if (k === "class") e.className = v;
-        else if (k === "style" && typeof v === "object") Object.assign(e.style, v);
-        else if (k === "html") e.innerHTML = v;
-        else if (k.startsWith("on") && typeof v === "function") e.addEventListener(k.slice(2).toLowerCase(), v);
-        else if (v !== null && v !== undefined) e.setAttribute(k, v);
-    }
-    for (const c of children) {
-        if (c == null || c === false) continue;
-        if (Array.isArray(c)) {
-            for (const sub of c) {
-                if (sub == null || sub === false) continue;
-                e.appendChild(typeof sub === "string" ? document.createTextNode(sub) : sub);
-            }
-        } else {
-            e.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
-        }
-    }
-    return e;
-}
-
-function escapeHtml(s) {
-    return String(s ?? "")
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;");
 }
 
 // -----------------------------------------------------------------------------
@@ -142,8 +138,7 @@ function buildPanelSkeleton() {
 
     const panel = el("aside", {
         id: PANEL_ID,
-        class: `meg-sp-panel meg-sp-pos-${cfg.position}${cfg.collapsed ? " meg-sp-collapsed" : ""}`,
-        style: { "--meg-sp-width": cfg.width + "px" },
+        class: `meg-sp-panel${cfg.collapsed ? " meg-sp-collapsed" : ""}`,
     });
 
     const header = el("div", { class: "meg-sp-header" },
@@ -170,342 +165,50 @@ function buildPanelSkeleton() {
     );
 
     const body = el("div", { class: "meg-sp-body" });
-
-    const empty = el("div", { class: "meg-sp-empty", id: "meg-sp-empty" },
+    body.appendChild(el("div", { class: "meg-sp-empty", id: "meg-sp-empty" },
         el("i", { class: "fa-solid fa-hat-wizard" }),
         el("p", {}, "No tracker data yet. The panel updates whenever the AI emits a World State, NPC Inner Chatter, or Summary block."),
-    );
-    body.appendChild(empty);
-
-    // Section containers — filled by render()
-    const sections = el("div", { class: "meg-sp-sections", id: "meg-sp-sections" });
-    body.appendChild(sections);
+    ));
+    body.appendChild(el("div", { class: "meg-sp-sections", id: "meg-sp-sections" }));
 
     panel.appendChild(header);
     panel.appendChild(body);
-
     document.body.appendChild(panel);
     document.body.appendChild(fab);
-}
 
-// -----------------------------------------------------------------------------
-// Section builders
-// -----------------------------------------------------------------------------
-function section(id, icon, title, contentNode, { open = true, badge = null } = {}) {
-    const d = el("details", { class: "meg-sp-section", id: "meg-sp-section-" + id });
-    if (open) d.open = true;
-    const sum = el("summary", { class: "meg-sp-summary" },
-        el("span", { class: "meg-sp-summary-title" },
-            el("i", { class: "fa-solid " + icon }),
-            " ",
-            title),
-        badge != null ? el("span", { class: "meg-sp-badge" }, String(badge)) : null,
-    );
-    d.appendChild(sum);
-    d.appendChild(contentNode);
-    return d;
-}
-
-function renderWorldState(ws) {
-    if (!ws) return el("div", { class: "meg-sp-muted" }, "—");
-    const rows = [];
-
-    const kv = (label, val) => val ? el("div", { class: "meg-sp-kv" },
-        el("span", { class: "meg-sp-kv-key" }, label),
-        el("span", { class: "meg-sp-kv-val" }, val),
-    ) : null;
-
-    if (ws.dateTime) rows.push(kv("Date & Time", ws.dateTime));
-    if (ws.location) rows.push(kv("Location", ws.location));
-    if (ws.weather) rows.push(kv("Weather", ws.weather));
-    if (ws.scenePhase) rows.push(kv("Scene Phase", ws.scenePhase));
-
-    const container = el("div", { class: "meg-sp-ws" });
-    if (rows.filter(Boolean).length) {
-        container.appendChild(el("div", { class: "meg-sp-ws-meta" }, rows.filter(Boolean)));
-    }
-
-    // PC card
-    if (ws.pc && (ws.pc.name || Object.keys(ws.pc.fields || {}).length)) {
-        container.appendChild(el("div", { class: "meg-sp-card meg-sp-card-pc" },
-            el("div", { class: "meg-sp-card-head" },
-                el("i", { class: "fa-solid fa-user" }),
-                " ",
-                ws.pc.name || "PC"),
-            el("div", { class: "meg-sp-card-fields" },
-                Object.entries(ws.pc.fields || {}).map(([k, v]) =>
-                    el("div", { class: "meg-sp-field" },
-                        el("span", { class: "meg-sp-field-key" }, k + ":"),
-                        " ",
-                        el("span", { class: "meg-sp-field-val" }, v),
-                    ))),
-        ));
-    }
-
-    // NPCs Present is rendered by the Present Characters bar at the bottom
-    // of the chat — click any portrait there to open the full sheet.
-    // (Previous inline NPC cards removed; bar now owns this section.)
-
-    // Off-screen
-    if (ws.offScreen && ws.offScreen.length) {
-        container.appendChild(el("div", { class: "meg-sp-card-head meg-sp-card-head-sep" },
-            el("i", { class: "fa-solid fa-satellite-dish" }), " Off-Screen"));
-        container.appendChild(el("ul", { class: "meg-sp-bullets" },
-            ws.offScreen.map(x => el("li", {}, x))));
-    }
-
-    // Threads
-    if (ws.threads && ws.threads.length) {
-        container.appendChild(el("div", { class: "meg-sp-card-head meg-sp-card-head-sep" },
-            el("i", { class: "fa-solid fa-fire" }), " Unresolved Threads"));
-        container.appendChild(el("ul", { class: "meg-sp-bullets" },
-            ws.threads.map(x => el("li", {}, x))));
-    }
-
-    if (ws.leftovers && ws.leftovers.length) {
-        container.appendChild(el("div", { class: "meg-sp-leftover", html:
-            ws.leftovers.map(t => `<div>${escapeHtml(t)}</div>`).join("") }));
-    }
-
-    if (!container.children.length) {
-        container.appendChild(el("div", { class: "meg-sp-muted" }, "(no fields parsed)"));
-    }
-    return container;
-}
-
-// Find a banked NPC by name (case-insensitive, normalizes whitespace).
-// Used to pull portrait/age/sex into the World State + Inner Chatter views.
-function lookupBankedNpc(name) {
-    if (!name) return null;
-    const npcs = getProfile()?.npcBank?.npcs;
-    if (!Array.isArray(npcs)) return null;
-    const target = name.trim().toLowerCase();
-    for (const n of npcs) {
-        const nm = (n.name || "").trim().toLowerCase();
-        if (!nm) continue;
-        if (nm === target) return n;
-        // Fuzzy: bank name appears as a whole word in scene name (or vice versa)
-        if (nm.split(/\s+/)[0] === target.split(/\s+/)[0]) return n;
-    }
-    return null;
-}
-
-function avatarNode(npc, name) {
-    const fallbackChar = (name || "?").trim().charAt(0).toUpperCase();
-    const male = npc ? isMaleSex(npc.sex) : null;
-    const accentClass = male === true ? "meg-sp-av-male"
-                       : male === false ? "meg-sp-av-female"
-                       : "meg-sp-av-neutral";
-    if (npc && npc.pfp) {
-        return el("div", { class: "meg-sp-av " + accentClass },
-            el("img", { src: npc.pfp, alt: name || "NPC", onerror: function () { this.style.display = "none"; } }));
-    }
-    return el("div", { class: "meg-sp-av meg-sp-av-empty " + accentClass },
-        el("span", { class: "meg-sp-av-initial" }, fallbackChar));
-}
-
-function renderPresentNpcCard(npc) {
-    const name = npc.name || "NPC";
-    const banked = lookupBankedNpc(name);
-    const ageSex = [banked?.age, banked?.sex].filter(Boolean).join(" · ");
-    const fields = Object.entries(npc.fields || {});
-
-    return el("div", { class: "meg-sp-pres-card" },
-        el("div", { class: "meg-sp-pres-head" },
-            avatarNode(banked, name),
-            el("div", { class: "meg-sp-pres-titles" },
-                el("div", { class: "meg-sp-pres-name" }, name),
-                ageSex ? el("div", { class: "meg-sp-pres-meta" }, ageSex) : null,
-            ),
-            banked
-                ? el("button", {
-                    class: "meg-sp-pres-book",
-                    title: "Open in NPC Book",
-                    onclick: () => {
-                        const list = getProfile().npcBank?.npcs || [];
-                        const idx = list.findIndex(n => (n.name || "").trim().toLowerCase() === (banked.name || "").trim().toLowerCase());
-                        openNpcBook(idx >= 0 ? idx : undefined);
-                    },
-                }, el("i", { class: "fa-solid fa-book-open" }))
-                : null,
-        ),
-        fields.length
-            ? el("div", { class: "meg-sp-pres-fields" },
-                fields.map(([k, v]) => el("div", { class: "meg-sp-pres-field" },
-                    el("span", { class: "meg-sp-pres-field-key" }, k),
-                    el("span", { class: "meg-sp-pres-field-val" }, v),
-                )))
-            : null,
-    );
-}
-
-function renderInnerChatter(entries) {
-    if (!entries || !entries.length) return el("div", { class: "meg-sp-muted" }, "—");
-    // Group consecutive lines by the same NPC so multiple thoughts share one avatar
-    const groups = [];
-    for (const e of entries) {
-        const last = groups[groups.length - 1];
-        if (last && last.name === e.name) last.quotes.push(e.quote);
-        else groups.push({ name: e.name, quotes: [e.quote] });
-    }
-    const wrap = el("div", { class: "meg-sp-chatter" });
-    for (const g of groups) {
-        const banked = lookupBankedNpc(g.name);
-        wrap.appendChild(el("div", { class: "meg-sp-thought" },
-            el("div", { class: "meg-sp-thought-avatar" },
-                avatarNode(banked, g.name),
-                el("div", { class: "meg-sp-thought-bubbles" },
-                    el("div", { class: "meg-sp-bubble meg-sp-bubble-2" }),
-                    el("div", { class: "meg-sp-bubble meg-sp-bubble-1" }),
-                ),
-            ),
-            el("div", { class: "meg-sp-thought-content" },
-                g.name ? el("div", { class: "meg-sp-thought-name" }, g.name) : null,
-                el("div", { class: "meg-sp-thought-quotes" },
-                    g.quotes.map(q => el("div", { class: "meg-sp-thought-text" }, q))),
-            ),
-        ));
-    }
-    return wrap;
-}
-
-function renderSummary(text) {
-    if (!text) return el("div", { class: "meg-sp-muted" }, "—");
-    return el("div", { class: "meg-sp-summary-text" }, text);
-}
-
-function renderNewNpcs(list) {
-    if (!list || !list.length) return el("div", { class: "meg-sp-muted" }, "—");
-    const wrap = el("div", { class: "meg-sp-newnpcs" });
-    for (const n of list) {
-        wrap.appendChild(el("div", { class: "meg-sp-card meg-sp-card-newnpc" },
-            el("div", { class: "meg-sp-card-head" },
-                el("i", { class: "fa-solid fa-user-plus" }), " ", n.name || "Unnamed NPC"),
-            Object.keys(n.fields || {}).length
-                ? el("div", { class: "meg-sp-card-fields" },
-                    Object.entries(n.fields).map(([k, v]) =>
-                        el("div", { class: "meg-sp-field" },
-                            el("span", { class: "meg-sp-field-key" }, k + ":"),
-                            " ",
-                            el("span", { class: "meg-sp-field-val" }, v))))
-                : el("div", { class: "meg-sp-muted" }, "(no parsed fields)"),
-        ));
-    }
-    return wrap;
-}
-
-function renderStoryPlan(plan) {
-    if (!plan || !plan.trim()) return el("div", { class: "meg-sp-muted" }, "Story Planner is empty.");
-    const lines = plan.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-    const list = el("ol", { class: "meg-sp-plan" });
-    let added = 0;
-    for (const ln of lines) {
-        const clean = ln.replace(/^[\-\*•]\s*/, "").replace(/^\d+[\.\)]\s*/, "");
-        if (!clean) continue;
-        list.appendChild(el("li", {}, clean));
-        added++;
-    }
-    if (!added) return el("div", { class: "meg-sp-summary-text" }, plan.trim());
-    return list;
-}
-
-function isMaleSex(sexStr) {
-    return (sexStr || "").trim().toLowerCase().startsWith("m");
-}
-
-function renderNpcBank(npcs) {
-    const wrap = el("div", { class: "meg-sp-bank" });
-
-    // Action row — open the full NPC Book (existing Megumin UI on the NPCs Bank tab)
-    const openBookBtn = el("button", {
-        class: "meg-sp-book-btn",
-        title: "Open the full NPC Book (browse, edit, upload, generate portraits)",
-        onclick: () => openNpcBook(),
-    },
-        el("i", { class: "fa-solid fa-book-open" }),
-        " Open NPC Book",
-        npcs && npcs.length
-            ? el("span", { class: "meg-sp-book-count" }, String(npcs.length))
-            : null,
-    );
-    wrap.appendChild(openBookBtn);
-
-    if (!npcs || !npcs.length) {
-        wrap.appendChild(el("div", { class: "meg-sp-muted", style: { marginTop: "8px" } },
-            "No NPCs banked yet. They get added automatically as the AI introduces them."));
-        return wrap;
-    }
-
-    const grid = el("div", { class: "meg-sp-bank-grid" });
-    // Newest first (matches existing UI's reverse-iteration pattern)
-    [...npcs].reverse().forEach((n, revIdx) => {
-        const idx = npcs.length - 1 - revIdx;
-        const male = isMaleSex(n.sex);
-        const accentVar = male ? "var(--meg-sp-npc-male, #3b82f6)" : "var(--meg-sp-npc-female, #f43f5e)";
-        const portrait = n.pfp
-            ? el("img", { class: "meg-sp-npc-pfp", src: n.pfp, alt: n.name || "NPC" })
-            : el("div", { class: "meg-sp-npc-pfp meg-sp-npc-pfp-empty" },
-                el("i", { class: "fa-solid fa-user-secret" }));
-
-        const ageSex = [n.age, n.sex].filter(Boolean).join(" · ");
-
-        const card = el("div", {
-            class: "meg-sp-bank-mini",
-            style: { "--accent": accentVar },
-            title: "Click to open in NPC Book",
-            onclick: () => openNpcBook(idx),
-        },
-            portrait,
-            el("div", { class: "meg-sp-bank-mini-info" },
-                el("div", { class: "meg-sp-bank-mini-name" }, n.name || "Unnamed"),
-                ageSex ? el("div", { class: "meg-sp-bank-mini-meta" }, ageSex) : null,
-                (n.role || n.occupation)
-                    ? el("div", { class: "meg-sp-bank-mini-occ" }, n.role || n.occupation)
-                    : null,
-            ),
-        );
-        grid.appendChild(card);
+    initPanelChrome(panel, {
+        getSettings: settings,
+        persist,
+        onLayoutChange: () => syncBodyClasses(),
     });
-    wrap.appendChild(grid);
-    return wrap;
 }
 
-/**
- * Open the existing Megumin Suite settings modal directly on the NPCs Bank
- * tab. Reuses the existing UI so editing / uploads / portrait generation
- * keep working — no duplicated logic.
- *
- * @param {number} [focusIdx] - Optional NPC index to expand on open.
- */
+// -----------------------------------------------------------------------------
+// NPC Book bridge — opens the existing Megumin Suite modal on the NPCs Bank tab
+// -----------------------------------------------------------------------------
 function openNpcBook(focusIdx) {
     const $overlay = window.jQuery ? window.jQuery("#prompt-slot-modal-overlay") : null;
     if (!$overlay || !$overlay.length) {
-        // Settings modal hasn't been mounted yet
         try { (window.toastr || console).info("Open Megumin Suite (wand icon) at least once first.", "NPC Book"); } catch (e) { /* */ }
         return;
     }
 
-    // Find the NPCs Bank tab dynamically (tab title-based, not index-based, in
-    // case the order changes upstream).
+    // Title-based lookup so upstream tab reorders don't break us
     const dock = document.querySelectorAll("#ps_dynamic_dots .dock-icon");
     let bankIdx = -1;
     dock.forEach((d, i) => {
         if ((d.getAttribute("title") || "").trim() === "NPCs Bank") bankIdx = i;
     });
 
-    // Open modal then switch to tab
     $overlay.fadeIn(200).css("display", "flex");
     if (bankIdx >= 0) {
         const dot = document.getElementById("dot_" + bankIdx);
         if (dot) dot.click();
     }
 
-    // If a specific NPC was requested, expand its card after the tab renders
     if (typeof focusIdx === "number" && focusIdx >= 0) {
         setTimeout(() => {
             const cards = document.querySelectorAll("#ps_stage_content .npc-card");
-            // The bank renders newest-first, so we need to figure out the DOM
-            // position from the underlying array index. We match by name.
             const targetName = (getProfile().npcBank?.npcs || [])[focusIdx]?.name;
             if (!targetName) return;
             for (const card of cards) {
@@ -521,15 +224,127 @@ function openNpcBook(focusIdx) {
     }
 }
 
-function renderBanList(items) {
-    if (!items || !items.length) return el("div", { class: "meg-sp-muted" }, "No banned phrases yet.");
-    return el("ul", { class: "meg-sp-banlist" },
-        items.map(p => el("li", {}, typeof p === "string" ? p : (p.phrase || p.text || JSON.stringify(p)))));
+// -----------------------------------------------------------------------------
+// Banked NPC lookup (shared with sections + present bar cast)
+// -----------------------------------------------------------------------------
+function lookupBankedNpc(name) {
+    if (!name) return null;
+    const npcs = getProfile()?.npcBank?.npcs;
+    if (!Array.isArray(npcs)) return null;
+    const target = name.trim().toLowerCase();
+    for (const n of npcs) {
+        const nm = (n.name || "").trim().toLowerCase();
+        if (!nm) continue;
+        if (nm === target) return n;
+        if (nm.split(/\s+/)[0] === target.split(/\s+/)[0]) return n;
+    }
+    return null;
 }
 
 // -----------------------------------------------------------------------------
-// Main render
+// Render loop
 // -----------------------------------------------------------------------------
+function buildSectionCtx() {
+    let parsed = { hasAny: false };
+    try {
+        const ctx = getContext();
+        const found = findLastAssistantMessage(ctx?.chat);
+        if (found) parsed = parseMessage(found.msg.mes);
+    } catch (e) {
+        console.warn("[Megumin Side Panel] parse failure", e);
+    }
+    return {
+        parsed,
+        profile: getProfile() || {},
+        cfg: settings(),
+        openNpcBook,
+        lookupBankedNpc,
+    };
+}
+
+export function getOrderedSections(cfg) {
+    return [...SECTION_REGISTRY].sort((a, b) =>
+        (cfg.sections[a.id]?.order ?? a.order) - (cfg.sections[b.id]?.order ?? b.order));
+}
+
+function onGripKeydown(e, sectionId) {
+    if (!e.altKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const cfg = settings();
+    const ordered = getOrderedSections(cfg).filter(d => cfg.sections[d.id]?.visible !== false);
+    const idx = ordered.findIndex(d => d.id === sectionId);
+    if (idx < 0) return;
+    const swapWith = e.key === "ArrowUp" ? idx - 1 : idx + 1;
+    if (swapWith < 0 || swapWith >= ordered.length) return;
+    const ids = ordered.map(d => d.id);
+    [ids[idx], ids[swapWith]] = [ids[swapWith], ids[idx]];
+    applySectionOrder(ids);
+    // Restore focus to the moved grip after re-render
+    requestAnimationFrame(() => {
+        document.querySelector(`#meg-sp-section-${sectionId} .meg-sp-drag-handle`)?.focus();
+    });
+}
+
+function buildSectionShell(def, st, contentNode, badgeVal) {
+    const d = el("details", {
+        class: "meg-sp-section",
+        id: "meg-sp-section-" + def.id,
+        "data-section-id": def.id,
+    });
+    d.open = !!st.open;
+
+    const grip = el("span", {
+        class: "meg-sp-drag-handle",
+        tabindex: "0",
+        role: "button",
+        title: "Alt+↑/↓ to reorder",
+        onkeydown: (e) => onGripKeydown(e, def.id),
+        onclick: (e) => { e.preventDefault(); e.stopPropagation(); },
+    }, el("i", { class: "fa-solid fa-grip-vertical" }));
+
+    let badgeNode = null;
+    if (badgeVal !== null && badgeVal !== undefined) {
+        badgeNode = el("span", { class: "meg-sp-badge" }, String(badgeVal));
+        const prev = lastBadgeCounts.get(def.id);
+        if (prev !== undefined && prev !== badgeVal) {
+            badgeNode.classList.add("meg-sp-badge-pulse");
+            badgeNode.addEventListener("animationend", () => badgeNode.classList.remove("meg-sp-badge-pulse"), { once: true });
+        }
+        lastBadgeCounts.set(def.id, badgeVal);
+    }
+
+    const sum = el("summary", { class: "meg-sp-summary" },
+        grip,
+        el("span", { class: "meg-sp-summary-title" },
+            el("i", { class: "fa-solid " + def.icon }),
+            " ",
+            def.title),
+        badgeNode,
+        el("i", { class: "fa-solid fa-chevron-down meg-sp-chevron" }),
+    );
+    d.appendChild(sum);
+    d.appendChild(contentNode);
+
+    d.addEventListener("toggle", () => {
+        if (suppressToggle) return;
+        const cfg = settings();
+        if (cfg.sections[def.id]) {
+            cfg.sections[def.id].open = d.open;
+            persist();
+        }
+    });
+
+    return d;
+}
+
+function syncBodyClasses() {
+    const cfg = settings();
+    document.body.classList.toggle(BODY_OPEN_CLASS,
+        cfg.enabled && cfg.mode === "docked" && !cfg.collapsed);
+    document.body.classList.toggle(BODY_HIDE_CLASS, cfg.enabled && !!cfg.hideInline);
+}
+
 function render() {
     const panel = document.getElementById(PANEL_ID);
     if (!panel) return;
@@ -541,73 +356,45 @@ function render() {
     }
     panel.style.display = "";
     panel.classList.toggle("meg-sp-collapsed", !!cfg.collapsed);
-    panel.classList.remove("meg-sp-pos-left", "meg-sp-pos-right");
-    panel.classList.add("meg-sp-pos-" + cfg.position);
-    panel.style.setProperty("--meg-sp-width", (cfg.width || 620) + "px");
-    document.body.classList.toggle(BODY_OPEN_CLASS, !cfg.collapsed);
-    document.body.classList.toggle(BODY_HIDE_CLASS, !!cfg.hideInline);
+    applyLayout();
+    syncBodyClasses();
 
     const host = panel.querySelector("#meg-sp-sections");
     const empty = panel.querySelector("#meg-sp-empty");
+    const bodyEl = panel.querySelector(".meg-sp-body");
     if (!host) return;
 
+    const savedScroll = bodyEl ? bodyEl.scrollTop : 0;
+
+    const ctx = buildSectionCtx();
+
+    suppressToggle = true;
     host.innerHTML = "";
 
-    // Pull last assistant message and parse
-    let parsed = { hasAny: false };
-    try {
-        const ctx = getContext();
-        const found = findLastAssistantMessage(ctx?.chat);
-        if (found) parsed = parseMessage(found.msg.mes);
-    } catch (e) {
-        console.warn("[Megumin Side Panel] parse failure", e);
+    for (const def of getOrderedSections(cfg)) {
+        const st = cfg.sections[def.id];
+        if (!st || st.visible === false) continue;
+
+        let content = null;
+        try {
+            content = def.render(ctx);
+        } catch (e) {
+            console.warn(`[Megumin Side Panel] section ${def.id} render failed`, e);
+        }
+
+        if (!content) {
+            if (cfg.autoHideEmpty) continue;
+            content = el("div", { class: "meg-sp-muted" }, "—");
+        }
+
+        const badgeVal = typeof def.badge === "function" ? def.badge(ctx) : null;
+        host.appendChild(buildSectionShell(def, st, content, badgeVal));
     }
 
-    const prof = getProfile() || {};
-    const sp = prof.storyPlan || {};
-    const bank = prof.npcBank || {};
-    const banList = prof.banList || [];
+    queueMicrotask(() => { suppressToggle = false; });
 
-    const anyChatBlocks = parsed.hasAny || (parsed.newNpcs && parsed.newNpcs.length);
-    const anyProfile = (sp.currentPlan && sp.currentPlan.trim())
-        || (bank.npcs && bank.npcs.length)
-        || (banList && banList.length);
-
-    if (empty) empty.style.display = (anyChatBlocks || anyProfile) ? "none" : "";
-
-    if (cfg.sections.worldState && parsed.worldState) {
-        host.appendChild(section("worldState", "fa-thumbtack", "World State",
-            renderWorldState(parsed.worldState)));
-    }
-    if (cfg.sections.innerChatter && parsed.innerChatter && parsed.innerChatter.length) {
-        host.appendChild(section("innerChatter", "fa-comment-dots", "NPC Inner Chatter",
-            renderInnerChatter(parsed.innerChatter),
-            { badge: parsed.innerChatter.length }));
-    }
-    if (cfg.sections.summary && parsed.summary) {
-        host.appendChild(section("summary", "fa-floppy-disk", "Summary",
-            renderSummary(parsed.summary)));
-    }
-    if (cfg.sections.newNpcs && parsed.newNpcs && parsed.newNpcs.length) {
-        host.appendChild(section("newNpcs", "fa-user-plus", "New NPC Dossiers",
-            renderNewNpcs(parsed.newNpcs),
-            { badge: parsed.newNpcs.length }));
-    }
-    if (cfg.sections.storyPlan && (sp.enabled || (sp.currentPlan && sp.currentPlan.trim()))) {
-        host.appendChild(section("storyPlan", "fa-map", "Story Planner",
-            renderStoryPlan(sp.currentPlan),
-            { open: false }));
-    }
-    if (cfg.sections.npcBank && bank.npcs && bank.npcs.length) {
-        host.appendChild(section("npcBank", "fa-address-book", "NPC Bank",
-            renderNpcBank(bank.npcs),
-            { open: true, badge: bank.npcs.length }));
-    }
-    if (cfg.sections.banList && banList && banList.length) {
-        host.appendChild(section("banList", "fa-ban", "Ban List",
-            renderBanList(banList),
-            { open: false, badge: banList.length }));
-    }
+    if (empty) empty.style.display = host.children.length ? "none" : "";
+    if (bodyEl) bodyEl.scrollTop = savedScroll;
 }
 
 function scheduleRender(delay = 0) {
@@ -619,11 +406,37 @@ function scheduleRender(delay = 0) {
     }, delay);
 }
 
-/**
- * Cast getter for the Present Characters bar. Reads the latest assistant
- * message's parsed NPCs Present, augments each with their NPC Bank entry
- * (for the portrait + sex tint), and de-dupes by name.
- */
+// -----------------------------------------------------------------------------
+// Section order API (used by grip keyboard reorder + settings tab)
+// -----------------------------------------------------------------------------
+export function applySectionOrder(ids) {
+    const cfg = settings();
+    ids.forEach((id, i) => {
+        if (cfg.sections[id]) cfg.sections[id].order = i;
+    });
+    // Push hidden sections after the visible ones, preserving relative order
+    let tail = ids.length;
+    for (const def of getOrderedSections(cfg)) {
+        if (!ids.includes(def.id)) {
+            if (cfg.sections[def.id]) cfg.sections[def.id].order = tail++;
+        }
+    }
+    persist();
+    render();
+}
+
+export function resetSectionLayout() {
+    const cfg = settings();
+    for (const def of SECTION_REGISTRY) {
+        cfg.sections[def.id] = { visible: true, open: def.defaultOpen, order: def.order };
+    }
+    persist();
+    render();
+}
+
+// -----------------------------------------------------------------------------
+// Present Characters cast
+// -----------------------------------------------------------------------------
 function buildPresentCast() {
     try {
         const ctx = getContext();
@@ -638,13 +451,7 @@ function buildPresentCast() {
             const key = name.toLowerCase();
             if (seen.has(key)) continue;
             seen.add(key);
-            const banked = (getProfile()?.npcBank?.npcs || []).find(b => {
-                const bn = (b.name || "").trim().toLowerCase();
-                if (!bn) return false;
-                if (bn === key) return true;
-                return bn.split(/\s+/)[0] === key.split(/\s+/)[0];
-            }) || null;
-            out.push({ name, fields: npc.fields || {}, banked });
+            out.push({ name, fields: npc.fields || {}, banked: lookupBankedNpc(name) });
         }
         return out;
     } catch (e) {
@@ -653,8 +460,8 @@ function buildPresentCast() {
 }
 
 // -----------------------------------------------------------------------------
-// Inline-hiding: strip the inline <details> blocks from rendered chat DOM.
-// Raw chat[].mes is left intact so re-parsing on swipe/edit keeps working.
+// Inline-hiding: hide tracker <details> in the rendered chat DOM.
+// Raw chat[].mes stays intact so re-parsing on swipe/edit keeps working.
 // -----------------------------------------------------------------------------
 function stripInlineFromMessage(mesId) {
     const cfg = settings();
@@ -664,18 +471,15 @@ function stripInlineFromMessage(mesId) {
         root = document.querySelector(`.mes[mesid="${mesId}"] .mes_text`);
     }
     if (!root) {
-        // Fallback: scrub the most recent
         const all = document.querySelectorAll(".mes .mes_text");
         root = all[all.length - 1];
     }
     if (!root) return;
 
-    // Walk <details> elements and remove ones whose <summary> contains our emojis
     root.querySelectorAll("details").forEach(d => {
         const sum = d.querySelector("summary");
         if (!sum) return;
-        const txt = sum.textContent || "";
-        if (/📌|💭|💾|🆕/.test(txt)) {
+        if (/📌|💭|💾|🆕/.test(sum.textContent || "")) {
             d.style.display = "none";
             d.classList.add("meg-sp-tracker-block");
         }
@@ -696,12 +500,11 @@ function stripInlineFromAll() {
 }
 
 // -----------------------------------------------------------------------------
-// Toggling
+// Panel collapse toggle (FAB + ✕)
 // -----------------------------------------------------------------------------
 function togglePanel(force) {
     const cfg = settings();
-    const next = (typeof force === "boolean") ? !force : !cfg.collapsed;
-    cfg.collapsed = next;
+    cfg.collapsed = (typeof force === "boolean") ? !force : !cfg.collapsed;
     persist();
     render();
 }
@@ -711,13 +514,42 @@ function injectStylesheet() {
     const link = document.createElement("link");
     link.id = "meg-sp-styles";
     link.rel = "stylesheet";
-    // Resolve URL relative to this module so it works regardless of mount path
     try {
         link.href = new URL("./styles.css", import.meta.url).toString();
     } catch (e) {
         link.href = "scripts/extensions/third-party/Megumin-Suite/src/sidepanel/styles.css";
     }
     document.head.appendChild(link);
+}
+
+// -----------------------------------------------------------------------------
+// Debug handle
+// -----------------------------------------------------------------------------
+function installDebugHandle() {
+    try {
+        window.LukaSuite = Object.freeze({
+            refresh: () => { render(); refreshPresentBar(); },
+            settings,
+            parseLast: () => buildSectionCtx().parsed,
+            cast: buildPresentCast,
+            sections: {
+                registry: SECTION_REGISTRY,
+                order: () => getOrderedSections(settings()).map(d => d.id),
+                setOrder: applySectionOrder,
+                reset: resetSectionLayout,
+            },
+            panel: {
+                el: () => document.getElementById(PANEL_ID),
+                toggle: togglePanel,
+                setMode,
+            },
+            openNpcBook,
+            presentBar: {
+                settings: getPresentBarSettings,
+                refresh: refreshPresentBar,
+            },
+        });
+    } catch (e) { /* non-fatal */ }
 }
 
 // -----------------------------------------------------------------------------
@@ -739,13 +571,13 @@ export function initSidePanel({ profileGetter } = {}) {
         },
     });
 
-    // Build skeleton when DOM is ready
     const mount = () => {
         if (document.getElementById(PANEL_ID)) return;
         buildPanelSkeleton();
         render();
         stripInlineFromAll();
         refreshPresentBar();
+        installDebugHandle();
     };
     if (document.readyState === "loading") {
         document.addEventListener("DOMContentLoaded", mount, { once: true });
@@ -753,7 +585,6 @@ export function initSidePanel({ profileGetter } = {}) {
         mount();
     }
 
-    // Wire SillyTavern events
     if (typeof eventSource !== "undefined" && typeof event_types !== "undefined") {
         eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, (mesId) => {
             scheduleRender(50);
@@ -778,48 +609,42 @@ export function initSidePanel({ profileGetter } = {}) {
         eventSource.on(event_types.APP_READY, () => {
             scheduleRender(100);
             setTimeout(stripInlineFromAll, 150);
+            setTimeout(clampToViewport, 200);
         });
     }
 }
 
 export function refreshSidePanel() { render(); }
-// Re-export present bar API so the settings tab can drive it
 export { getPresentBarSettings, applyPresentBarChange, refreshPresentBar };
 export function getSidePanelSettings() { return settings(); }
+
 export function applyInlineHidingChange() {
-    document.body.classList.toggle(BODY_HIDE_CLASS, !!settings().hideInline);
+    syncBodyClasses();
     stripInlineFromAll();
-    // Re-show if disabled
     if (!settings().hideInline) {
         document.querySelectorAll(".mes .mes_text details.meg-sp-tracker-block").forEach(d => {
             d.style.display = "";
         });
     }
 }
-export function applyPositionChange() {
-    const panel = document.getElementById(PANEL_ID);
-    if (!panel) return;
-    const cfg = settings();
-    panel.classList.remove("meg-sp-pos-left", "meg-sp-pos-right");
-    panel.classList.add("meg-sp-pos-" + cfg.position);
-}
-export function applyWidthChange() {
-    const panel = document.getElementById(PANEL_ID);
-    if (!panel) return;
-    panel.style.setProperty("--meg-sp-width", (settings().width || 360) + "px");
-}
+
+// Thin delegates — index.js call sites keep working
+export function applyPositionChange() { applyLayout(); }
+export function applyWidthChange() { applyLayout(); }
+export function applyModeChange() { setMode(settings().mode); }
+export function applyScaleChange() { applyScale(); }
+
 export function applyEnabledChange() {
     const panel = document.getElementById(PANEL_ID);
     const fab = document.getElementById(FAB_ID);
     const cfg = settings();
     if (panel) panel.style.display = cfg.enabled ? "" : "none";
     if (fab) fab.style.display = cfg.enabled ? "" : "none";
-    document.body.classList.toggle(BODY_OPEN_CLASS, cfg.enabled && !cfg.collapsed);
+    syncBodyClasses();
     if (cfg.enabled) {
         render();
         stripInlineFromAll();
     } else {
-        // Show inline blocks again when disabled
         document.querySelectorAll(".mes .mes_text details.meg-sp-tracker-block").forEach(d => {
             d.style.display = "";
         });

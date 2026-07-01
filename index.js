@@ -14,10 +14,16 @@ import {
     applyPositionChange,
     applyWidthChange,
     applyEnabledChange,
+    applyModeChange,
+    applyScaleChange,
+    applySectionOrder,
+    resetSectionLayout,
+    getOrderedSections,
     getPresentBarSettings,
     applyPresentBarChange,
     refreshPresentBar,
 } from "./src/sidepanel/panel.js";
+import { SECTION_REGISTRY } from "./src/sidepanel/sections.js";
 
 const extensionName = "Megumin-Suite";
 const extensionFolderPath = `scripts/extensions/third-party/${extensionName}`;
@@ -6616,6 +6622,16 @@ function renderSidePanelTab(c) {
         <i class="fa-solid fa-${cfg.enabled ? 'circle-check' : 'circle-xmark'}" style="font-size:0.6rem;"></i> ${cfg.enabled ? 'Enabled' : 'Disabled'}
     </div>`;
 
+    const isDocked = cfg.mode !== "floating";
+    const sectionRows = getOrderedSections(cfg).map((def, i) => `
+        <div class="mtab-toggle-row meg-sp-section-toggle ${cfg.sections[def.id]?.visible !== false ? 'active' : ''}" data-section="${def.id}">
+            <div class="toggle-info">
+                <div class="toggle-label"><span class="meg-sp-order-num">${i + 1}</span><i class="fa-solid ${def.icon}" style="color: var(--gold);"></i> ${def.title}</div>
+            </div>
+            <div class="ps-switch"></div>
+        </div>
+    `).join("");
+
     c.append(`
         <div class="mtab-header">
             <div class="mtab-header-left">
@@ -6624,11 +6640,13 @@ function renderSidePanelTab(c) {
                 </div>
                 <div>
                     <h2>Side Panel</h2>
-                    <p>Display Megumin's tracker blocks in a fixed panel next to the chat instead of inline. Updates automatically as the AI replies.</p>
+                    <p>Dockable / floatable tracker panel. Drag it by the header when floating, resize from the edge, reorder sections. Updates automatically as the AI replies.</p>
                 </div>
             </div>
             ${enabledBadge}
         </div>
+
+        <div class="meg-sp-group-head"><i class="fa-solid fa-window-maximize"></i> Panel</div>
 
         <div class="mtab-toggle-row ${cfg.enabled ? 'active' : ''}" id="megsp_enabled_row">
             <div class="toggle-info">
@@ -6638,17 +6656,22 @@ function renderSidePanelTab(c) {
             <div class="ps-switch"></div>
         </div>
 
-        <div class="mtab-toggle-row ${cfg.hideInline ? 'active' : ''}" id="megsp_hideinline_row">
-            <div class="toggle-info">
-                <div class="toggle-label">Hide inline tracker blocks in chat</div>
-                <div class="toggle-desc">Removes the <code>&lt;details&gt;</code> tracker blocks from the rendered chat DOM (they stay in the saved message so re-parsing keeps working).</div>
-            </div>
-            <div class="ps-switch"></div>
-        </div>
-
         <div class="meg-sp-settings-row">
             <div>
-                <div class="label">Panel position</div>
+                <div class="label">Mode</div>
+                <div class="desc">Docked pins the panel to a screen edge; Floating turns it into a draggable, resizable window.</div>
+            </div>
+            <div class="control">
+                <select id="megsp_mode" class="ps-modern-input" style="min-width: 140px;">
+                    <option value="docked" ${isDocked ? "selected" : ""}>Docked</option>
+                    <option value="floating" ${!isDocked ? "selected" : ""}>Floating</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="meg-sp-settings-row" id="megsp_position_row" style="${isDocked ? "" : "display:none;"}">
+            <div>
+                <div class="label">Docked edge</div>
                 <div class="desc">Which edge of the screen the panel anchors to.</div>
             </div>
             <div class="control">
@@ -6659,10 +6682,10 @@ function renderSidePanelTab(c) {
             </div>
         </div>
 
-        <div class="meg-sp-settings-row">
+        <div class="meg-sp-settings-row" id="megsp_width_row" style="${isDocked ? "" : "display:none;"}">
             <div>
-                <div class="label">Panel width</div>
-                <div class="desc">Width in pixels. Mobile clamps to 94% of viewport automatically.</div>
+                <div class="label">Docked width</div>
+                <div class="desc">You can also drag the panel's inner edge to resize. Mobile clamps to 94% of viewport.</div>
             </div>
             <div class="control">
                 <input id="megsp_width" type="number" min="320" max="1100" step="10" value="${cfg.width || 620}" class="ps-modern-input" style="width: 110px;" />
@@ -6670,35 +6693,54 @@ function renderSidePanelTab(c) {
             </div>
         </div>
 
-        <div class="meg-sp-settings-row" style="flex-direction: column; align-items: stretch; gap: 8px;">
+        <div class="meg-sp-settings-row">
             <div>
-                <div class="label">Sections to show</div>
-                <div class="desc">Toggle individual tracker sections in the side panel.</div>
+                <div class="label">UI scale</div>
+                <div class="desc">Zoom the whole panel — text, cards, avatars, everything.</div>
             </div>
-            <div class="meg-sp-section-grid">
-                ${[
-                    { key: "worldState",   icon: "fa-thumbtack",     label: "World State" },
-                    { key: "innerChatter", icon: "fa-comment-dots",  label: "Inner Chatter" },
-                    { key: "summary",      icon: "fa-floppy-disk",   label: "Summary" },
-                    { key: "newNpcs",      icon: "fa-user-plus",     label: "New NPCs" },
-                    { key: "storyPlan",    icon: "fa-map",           label: "Story Planner" },
-                    { key: "npcBank",      icon: "fa-address-book",  label: "NPC Bank" },
-                    { key: "banList",      icon: "fa-ban",           label: "Ban List" },
-                ].map(s => `
-                    <div class="mtab-toggle-row meg-sp-section-toggle ${cfg.sections[s.key] ? 'active' : ''}" data-section="${s.key}">
-                        <div class="toggle-info">
-                            <div class="toggle-label"><i class="fa-solid ${s.icon}" style="color: var(--gold);"></i> ${s.label}</div>
-                        </div>
-                        <div class="ps-switch"></div>
-                    </div>
-                `).join("")}
+            <div class="control">
+                <input id="megsp_scale" type="range" min="0.8" max="1.4" step="0.05" value="${cfg.scale || 1}" style="width: 140px;" />
+                <span id="megsp_scale_val" style="color: var(--text-muted); font-size: 12px; min-width: 42px; text-align: right;">${Math.round((cfg.scale || 1) * 100)}%</span>
             </div>
         </div>
 
-        <hr style="border: none; border-top: 1px dashed var(--border-color); margin: 18px 0 14px;">
-        <div style="font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px; color: var(--gold); margin-bottom: 8px; font-weight: 700;">
-            <i class="fa-solid fa-users"></i> Present Characters Bar
+        <div class="meg-sp-settings-row">
+            <div>
+                <div class="label">Reset floating position</div>
+                <div class="desc">Brings a lost floating panel back on screen at the default spot and size.</div>
+            </div>
+            <div class="control"><button id="megsp_float_reset" class="ps-modern-btn secondary"><i class="fa-solid fa-crosshairs"></i> Reset</button></div>
         </div>
+
+        <div class="meg-sp-group-head"><i class="fa-solid fa-layer-group"></i> Sections</div>
+
+        <div class="meg-sp-settings-row" style="flex-direction: column; align-items: stretch; gap: 8px;">
+            <div>
+                <div class="label">Sections to show</div>
+                <div class="desc">Toggle visibility. Numbers show current panel order — Alt+↑/↓ on a section's grip (in the panel) reorders it.</div>
+            </div>
+            <div class="meg-sp-section-grid">
+                ${sectionRows}
+            </div>
+        </div>
+
+        <div class="mtab-toggle-row ${cfg.autoHideEmpty ? 'active' : ''}" id="megsp_autohide_row">
+            <div class="toggle-info">
+                <div class="toggle-label">Hide sections with no data</div>
+                <div class="toggle-desc">Sections with nothing to show disappear instead of rendering an empty shell.</div>
+            </div>
+            <div class="ps-switch"></div>
+        </div>
+
+        <div class="meg-sp-settings-row">
+            <div>
+                <div class="label">Reset section layout</div>
+                <div class="desc">Restores default order, visibility, and open/closed states.</div>
+            </div>
+            <div class="control"><button id="megsp_sections_reset" class="ps-modern-btn secondary"><i class="fa-solid fa-rotate-left"></i> Reset</button></div>
+        </div>
+
+        <div class="meg-sp-group-head"><i class="fa-solid fa-users"></i> Present Characters Bar</div>
 
         <div class="mtab-toggle-row ${pb.enabled ? 'active' : ''}" id="megpb_enabled_row">
             <div class="toggle-info">
@@ -6735,7 +6777,15 @@ function renderSidePanelTab(c) {
             </div>
         </div>
 
-        <hr style="border: none; border-top: 1px dashed var(--border-color); margin: 18px 0 14px;">
+        <div class="meg-sp-group-head"><i class="fa-solid fa-screwdriver-wrench"></i> Advanced</div>
+
+        <div class="mtab-toggle-row ${cfg.hideInline ? 'active' : ''}" id="megsp_hideinline_row">
+            <div class="toggle-info">
+                <div class="toggle-label">Hide inline tracker blocks in chat</div>
+                <div class="toggle-desc">Removes the <code>&lt;details&gt;</code> tracker blocks from the rendered chat DOM (they stay in the saved message so re-parsing keeps working).</div>
+            </div>
+            <div class="ps-switch"></div>
+        </div>
 
         <div class="meg-sp-settings-row">
             <div>
@@ -6744,9 +6794,17 @@ function renderSidePanelTab(c) {
             </div>
             <div class="control"><button id="megsp_refresh" class="ps-modern-btn primary"><i class="fa-solid fa-rotate"></i> Refresh</button></div>
         </div>
+
+        <div class="meg-sp-settings-row">
+            <div>
+                <div class="label">Reset all side-panel settings</div>
+                <div class="desc">Wipes every setting on this tab back to defaults. Debug console handle: <code>window.LukaSuite</code></div>
+            </div>
+            <div class="control"><button id="megsp_reset_all" class="ps-modern-btn secondary" style="color: #ef4444; border-color: rgba(239,68,68,0.3);"><i class="fa-solid fa-trash"></i> Reset all</button></div>
+        </div>
     `);
 
-    // Wire up controls
+    // ── Panel group ──
     c.find("#megsp_enabled_row").on("click", function () {
         cfg.enabled = !cfg.enabled;
         $(this).toggleClass("active", cfg.enabled);
@@ -6754,11 +6812,13 @@ function renderSidePanelTab(c) {
         applyEnabledChange();
         refreshSidePanel();
     });
-    c.find("#megsp_hideinline_row").on("click", function () {
-        cfg.hideInline = !cfg.hideInline;
-        $(this).toggleClass("active", cfg.hideInline);
+    c.find("#megsp_mode").on("change", function () {
+        cfg.mode = $(this).val();
         saveSettingsDebounced();
-        applyInlineHidingChange();
+        applyModeChange();
+        refreshSidePanel();
+        const docked = cfg.mode === "docked";
+        $("#megsp_position_row, #megsp_width_row").toggle(docked);
     });
     c.find("#megsp_position").on("change", function () {
         cfg.position = $(this).val();
@@ -6771,20 +6831,43 @@ function renderSidePanelTab(c) {
         saveSettingsDebounced();
         applyWidthChange();
     });
+    c.find("#megsp_scale").on("input", function () {
+        cfg.scale = parseFloat($(this).val()) || 1;
+        $("#megsp_scale_val").text(Math.round(cfg.scale * 100) + "%");
+        applyScaleChange();
+    });
+    c.find("#megsp_scale").on("change", function () {
+        saveSettingsDebounced();
+    });
+    c.find("#megsp_float_reset").on("click", function () {
+        cfg.float = { x: null, y: null, w: 620, h: 720 };
+        saveSettingsDebounced();
+        applyModeChange();
+        toastr.success("Floating position reset", "Megumin Suite");
+    });
+
+    // ── Sections group ──
     c.find(".meg-sp-section-toggle").on("click", function () {
         const key = $(this).attr("data-section");
-        cfg.sections[key] = !cfg.sections[key];
-        $(this).toggleClass("active", cfg.sections[key]);
+        if (!cfg.sections[key]) return;
+        cfg.sections[key].visible = !cfg.sections[key].visible;
+        $(this).toggleClass("active", cfg.sections[key].visible);
         saveSettingsDebounced();
         refreshSidePanel();
     });
-    c.find("#megsp_refresh").on("click", function () {
+    c.find("#megsp_autohide_row").on("click", function () {
+        cfg.autoHideEmpty = !cfg.autoHideEmpty;
+        $(this).toggleClass("active", cfg.autoHideEmpty);
+        saveSettingsDebounced();
         refreshSidePanel();
-        refreshPresentBar();
-        toastr.success("Side panel refreshed", "Megumin Suite");
+    });
+    c.find("#megsp_sections_reset").on("click", function () {
+        resetSectionLayout();
+        renderSidePanelTab(c);
+        toastr.success("Section layout reset", "Megumin Suite");
     });
 
-    // Present Characters Bar wire-up
+    // ── Present Characters Bar group ──
     c.find("#megpb_enabled_row").on("click", function () {
         pb.enabled = !pb.enabled;
         $(this).toggleClass("active", pb.enabled);
@@ -6807,6 +6890,28 @@ function renderSidePanelTab(c) {
         pb.cardHeight = v;
         saveSettingsDebounced();
         applyPresentBarChange();
+    });
+
+    // ── Advanced group ──
+    c.find("#megsp_hideinline_row").on("click", function () {
+        cfg.hideInline = !cfg.hideInline;
+        $(this).toggleClass("active", cfg.hideInline);
+        saveSettingsDebounced();
+        applyInlineHidingChange();
+    });
+    c.find("#megsp_refresh").on("click", function () {
+        refreshSidePanel();
+        refreshPresentBar();
+        toastr.success("Side panel refreshed", "Megumin Suite");
+    });
+    c.find("#megsp_reset_all").on("click", function () {
+        if (!confirm("Reset ALL side-panel settings to defaults?")) return;
+        delete extension_settings["Megumin-Suite"].sidePanel;
+        saveSettingsDebounced();
+        applyEnabledChange();
+        refreshSidePanel();
+        renderSidePanelTab(c);
+        toastr.success("Side-panel settings reset", "Megumin Suite");
     });
 }
 
