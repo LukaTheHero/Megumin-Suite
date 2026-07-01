@@ -314,14 +314,22 @@ export function openCharacterSheet(name) {
     const sceneSection = sheetSection("This Scene", "fa-clapperboard",
         sceneFields.map(([k, v]) => fieldRow(k, v)));
 
+    // V8 schema (role, voice, whereToFind, readOnPc, secrets, canonLock,
+    // orientation) with V7 fallbacks (occupation, hiddenLayer) for NPCs
+    // banked before the upgrade.
     const bankSection = banked ? sheetSection("Dossier", "fa-address-card", [
-        fieldRow("Occupation", banked.occupation),
+        fieldRow("Role", banked.role || banked.occupation),
+        fieldRow("Orientation", banked.orientation),
+        fieldRow("Where to Find", banked.whereToFind),
         fieldRow("Appearance", banked.appearance),
+        fieldRow("Voice", banked.voice),
         fieldRow("Personality", banked.personality),
         fieldRow("Inner Circle", banked.innerCircle),
         fieldRow("Background", banked.background),
+        fieldRow("Read on PC", banked.readOnPc),
         fieldRow("Agenda (long-term)", banked.agenda),
-        fieldRow("Hidden Layer", banked.hiddenLayer),
+        fieldRow("Secrets", banked.secrets || banked.hiddenLayer),
+        fieldRow("Canon Lock", banked.canonLock),
     ]) : "";
 
     const bookBtn = banked
@@ -345,7 +353,7 @@ export function openCharacterSheet(name) {
                     <div class="meg-pb-sheet-titles">
                         <div class="meg-pb-sheet-name">${escapeHtml(entry.name)}</div>
                         ${ageSex ? `<div class="meg-pb-sheet-meta">${escapeHtml(ageSex)}</div>` : ""}
-                        ${banked?.occupation ? `<div class="meg-pb-sheet-occ">${escapeHtml(banked.occupation)}</div>` : ""}
+                        ${(banked?.role || banked?.occupation) ? `<div class="meg-pb-sheet-occ">${escapeHtml(banked.role || banked.occupation)}</div>` : ""}
                     </div>
                 </div>
                 <div class="meg-pb-sheet-body">
