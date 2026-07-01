@@ -139,8 +139,16 @@
     font-size: var(--meg-fs-md);
     line-height: var(--meg-lh-normal);
     transition: transform var(--meg-t-med) var(--meg-ease-out), opacity var(--meg-t-fast) ease;
-    zoom: var(--meg-sp-scale);
+    /* NOTE: no zoom here. The panel is the geometry-bearing element — its
+       top/left/width/height and getBoundingClientRect must share one
+       coordinate space for chrome.js drag/resize/clamp math. UI scale is
+       applied to the scroll-body children below instead. */
 }
+
+/* UI scale: zoom the content, not the frame. The scroll container stays
+   unzoomed so panel geometry and scrollbars are unaffected; children reflow
+   to fit the visual width and vertical overflow goes to the scrollbar. */
+.meg-sp-body > * { zoom: var(--meg-sp-scale); }
 #meg-sp-panel.meg-sp-pos-right { right: 16px; }
 #meg-sp-panel.meg-sp-pos-left { left: 16px; }
 #meg-sp-panel.meg-sp-collapsed { transform: translateX(120%); pointer-events: none; opacity: 0; }

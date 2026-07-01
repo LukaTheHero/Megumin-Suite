@@ -69,7 +69,6 @@ const DEFAULTS = Object.freeze({
 let initialised = false;
 let getProfile = () => ({});   // Injected by index.js
 let pendingRender = null;
-let suppressToggle = false;    // guards <details> toggle persistence during rebuild
 const lastBadgeCounts = new Map();
 
 // -----------------------------------------------------------------------------
@@ -80,8 +79,10 @@ const LEGACY_DEFAULTS = Object.freeze({
 });
 
 function migrateSidePanelSettings(cur) {
-    if ((cur.schemaVersion | 0) >= 2) return;
-    // v1 → v2: sections were booleans; now {visible, open, order}
+    // v1 → v2: sections were booleans; now {visible, open, order}.
+    // Keyed on the actual saved shape, NOT schemaVersion — the generic
+    // defaults backfill stamps schemaVersion: 2 before we run, so a
+    // version check would always pass and the migration would never fire.
     for (const def of SECTION_REGISTRY) {
         const v = cur.sections[def.id];
         if (typeof v === "boolean") {
@@ -327,10 +328,14 @@ function buildSectionShell(def, st, contentNode, badgeVal) {
     d.appendChild(contentNode);
 
     d.addEventListener("toggle", () => {
-        if (suppressToggle) return;
+        // <details> toggle events are macrotasks, so a render-time flag can't
+        // distinguish rebuild-triggered events from user clicks. Compare the
+        // persisted value instead: rebuild events fire with open === saved
+        // state (a no-op write we skip); only real user toggles differ.
         const cfg = settings();
-        if (cfg.sections[def.id]) {
-            cfg.sections[def.id].open = d.open;
+        const st2 = cfg.sections[def.id];
+        if (st2 && typeof st2 === "object" && st2.open !== d.open) {
+            st2.open = d.open;
             persist();
         }
     });
@@ -340,8 +345,9 @@ function buildSectionShell(def, st, contentNode, badgeVal) {
 
 function syncBodyClasses() {
     const cfg = settings();
-    document.body.classList.toggle(BODY_OPEN_CLASS,
-        cfg.enabled && cfg.mode === "docked" && !cfg.collapsed);
+    // Only the FAB's dim/shrink cue consumes this class (no layout depends
+    // on it), so it applies in both docked and floating modes.
+    document.body.classList.toggle(BODY_OPEN_CLASS, cfg.enabled && !cfg.collapsed);
     document.body.classList.toggle(BODY_HIDE_CLASS, cfg.enabled && !!cfg.hideInline);
 }
 
@@ -368,7 +374,6 @@ function render() {
 
     const ctx = buildSectionCtx();
 
-    suppressToggle = true;
     host.innerHTML = "";
 
     for (const def of getOrderedSections(cfg)) {
@@ -391,9 +396,28 @@ function render() {
         host.appendChild(buildSectionShell(def, st, content, badgeVal));
     }
 
-    queueMicrotask(() => { suppressToggle = false; });
 
-    if (empty) empty.style.display = host.children.length ? "none" : "";
+    if (empty) {
+        if (host.children.length) {
+            empty.style.display = "none";
+        } else {
+            // Distinguish "no data yet" from "data exists but every section
+            // is hidden" — the old panel keyed off actual data presence.
+            const prof = ctx.profile || {};
+            const hasData = ctx.parsed?.hasAny
+                || (ctx.parsed?.newNpcs && ctx.parsed.newNpcs.length)
+                || (prof.storyPlan?.currentPlan && prof.storyPlan.currentPlan.trim())
+                || (prof.npcBank?.npcs && prof.npcBank.npcs.length)
+                || (prof.banList && prof.banList.length);
+            const p = empty.querySelector("p");
+            if (p) {
+                p.textContent = hasData
+                    ? "All sections are hidden. Re-enable them in the Side Panel settings tab."
+                    : "No tracker data yet. The panel updates whenever the AI emits a World State, NPC Inner Chatter, or Summary block.";
+            }
+            empty.style.display = "";
+        }
+    }
     if (bodyEl) bodyEl.scrollTop = savedScroll;
 }
 
@@ -487,12 +511,17 @@ function stripInlineFromMessage(mesId) {
 }
 
 function stripInlineFromAll() {
+    const cfg = settings();
+    // When the panel is disabled the trackers must stay visible in chat —
+    // hiding them with no panel to show them would make the data vanish
+    // everywhere. Still run the loop so mid-session disables un-hide.
+    const hide = cfg.enabled && cfg.hideInline;
     document.querySelectorAll(".mes .mes_text").forEach(root => {
         root.querySelectorAll("details").forEach(d => {
             const sum = d.querySelector("summary");
             if (!sum) return;
             if (/📌|💭|💾|🆕/.test(sum.textContent || "")) {
-                d.style.display = settings().hideInline ? "none" : "";
+                d.style.display = hide ? "none" : "";
                 d.classList.add("meg-sp-tracker-block");
             }
         });

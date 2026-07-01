@@ -6907,8 +6907,10 @@ function renderSidePanelTab(c) {
     c.find("#megsp_reset_all").on("click", function () {
         if (!confirm("Reset ALL side-panel settings to defaults?")) return;
         delete extension_settings["Megumin-Suite"].sidePanel;
+        delete extension_settings["Megumin-Suite"].presentBar;
         saveSettingsDebounced();
         applyEnabledChange();
+        applyPresentBarChange();
         refreshSidePanel();
         renderSidePanelTab(c);
         toastr.success("Side-panel settings reset", "Megumin Suite");

@@ -25,6 +25,11 @@ let persist = () => {};
 let onLayoutChange = () => {};
 let modeBtn = null;
 let resizeTimer = null;
+// True while a resize gesture holds pointer capture on a handle. Renders can
+// fire mid-gesture (streaming completes while dragging); rebuilding handles
+// then would remove the captured element and orphan the gesture.
+let gestureActive = false;
+let handleRebuildQueued = false;
 
 function isMobile() {
     return window.matchMedia("(max-width: 768px)").matches;
@@ -126,10 +131,12 @@ function setupHeaderDrag(headerEl) {
         if (!dragging) return;
         dragging = false;
         moved = false;
+        gestureActive = false;
         panelEl.style.transform = "";
         panelEl.classList.remove("meg-sp-dragging");
         document.body.classList.remove("meg-sp-gesturing");
         if (escHandler) { document.removeEventListener("keydown", escHandler); escHandler = null; }
+        if (handleRebuildQueued) { handleRebuildQueued = false; rebuildHandles(); }
     };
 
     headerEl.addEventListener("pointerdown", (e) => {
@@ -141,6 +148,7 @@ function setupHeaderDrag(headerEl) {
         const rect = panelEl.getBoundingClientRect();
         dragging = true;
         moved = false;
+        gestureActive = true;
         startX = e.clientX;
         startY = e.clientY;
         baseX = rect.left;
@@ -175,6 +183,7 @@ function setupHeaderDrag(headerEl) {
         const didMove = moved;
         dragging = false;
         moved = false;
+        gestureActive = false;
         panelEl.classList.remove("meg-sp-dragging");
         document.body.classList.remove("meg-sp-gesturing");
         if (escHandler) { document.removeEventListener("keydown", escHandler); escHandler = null; }
@@ -187,6 +196,7 @@ function setupHeaderDrag(headerEl) {
             panelEl.style.setProperty("--meg-sp-float-y", cfg.float.y + "px");
             persist();
         }
+        if (handleRebuildQueued) { handleRebuildQueued = false; rebuildHandles(); }
     };
 
     headerEl.addEventListener("pointerup", finish);
@@ -202,6 +212,11 @@ function removeHandles() {
 
 function rebuildHandles() {
     if (!panelEl) return;
+    if (gestureActive) {
+        // Defer until the in-flight gesture finishes
+        handleRebuildQueued = true;
+        return;
+    }
     removeHandles();
     const cfg = getSettings();
     if (isMobile()) return;
@@ -223,6 +238,7 @@ function rebuildHandles() {
 
 function setupResize(handleEl, kind) {
     let resizing = false;
+    let moved = false;
     let startX = 0, startY = 0, startW = 0, startH = 0;
     let raf = 0;
     let curW = 0, curH = 0;
@@ -230,7 +246,6 @@ function setupResize(handleEl, kind) {
     const apply = () => {
         raf = 0;
         if (!resizing) return;
-        const cfg = getSettings();
         if (kind === "dock") {
             panelEl.style.setProperty("--meg-sp-width", curW + "px");
         } else {
@@ -243,6 +258,8 @@ function setupResize(handleEl, kind) {
         if (e.button !== 0) return;
         const rect = panelEl.getBoundingClientRect();
         resizing = true;
+        moved = false;
+        gestureActive = true;
         startX = e.clientX;
         startY = e.clientY;
         startW = rect.width;
@@ -269,27 +286,40 @@ function setupResize(handleEl, kind) {
             curW = Math.round(Math.max(MIN_W, Math.min(window.innerWidth - 2 * VIEW_MARGIN, startW + (e.clientX - startX))));
             curH = Math.round(Math.max(MIN_H, Math.min(window.innerHeight - 2 * VIEW_MARGIN, startH + (e.clientY - startY))));
         }
+        if (!moved && (Math.abs(e.clientX - startX) > 1 || Math.abs(e.clientY - startY) > 1)) moved = true;
         if (!raf) raf = requestAnimationFrame(apply);
     });
 
     const finish = () => {
         if (!resizing) return;
         resizing = false;
+        gestureActive = false;
         panelEl.classList.remove("meg-sp-resizing");
         document.body.classList.remove("meg-sp-gesturing");
-        const cfg = getSettings();
-        if (kind === "dock") {
-            cfg.width = curW;
-        } else {
-            cfg.float.w = curW;
-            cfg.float.h = curH;
+        // A plain click (no movement) must not persist geometry: measured
+        // rect can differ from the stored value (max-width clamps etc.),
+        // so writing it back would silently change the setting.
+        if (moved) {
+            const cfg = getSettings();
+            if (kind === "dock") {
+                cfg.width = curW;
+            } else {
+                cfg.float.w = curW;
+                cfg.float.h = curH;
+            }
+            persist();
         }
-        persist();
         onLayoutChange();
+        if (handleRebuildQueued) {
+            handleRebuildQueued = false;
+            rebuildHandles();
+        }
     };
 
     handleEl.addEventListener("pointerup", finish);
     handleEl.addEventListener("pointercancel", finish);
+    // If anything removes/steals the capture mid-gesture, close out cleanly
+    handleEl.addEventListener("lostpointercapture", finish);
 }
 
 // -----------------------------------------------------------------------------
