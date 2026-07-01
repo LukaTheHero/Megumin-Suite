@@ -134,18 +134,23 @@ function renderNewNpcs(ctx) {
     if (!list || !list.length) return null;
     const wrap = el("div", { class: "meg-sp-newnpcs" });
     for (const n of list) {
-        wrap.appendChild(el("div", { class: "meg-sp-card meg-sp-card-newnpc" },
-            el("div", { class: "meg-sp-card-head" },
-                el("i", { class: "fa-solid fa-user-plus" }), " ", n.name || "Unnamed NPC"),
-            Object.keys(n.fields || {}).length
-                ? el("div", { class: "meg-sp-card-fields" },
-                    Object.entries(n.fields).map(([k, v]) =>
-                        el("div", { class: "meg-sp-field" },
-                            el("span", { class: "meg-sp-field-key" }, k + ":"),
-                            " ",
-                            el("span", { class: "meg-sp-field-val" }, v))))
-                : el("div", { class: "meg-sp-muted" }, "(no parsed fields)"),
+        // Each dossier is its own collapsible so long ones can be tucked away
+        const d = el("details", { class: "meg-sp-card meg-sp-card-newnpc meg-sp-newnpc" });
+        d.open = true;
+        d.appendChild(el("summary", { class: "meg-sp-newnpc-head" },
+            el("i", { class: "fa-solid fa-user-plus" }), " ",
+            el("span", { class: "meg-sp-newnpc-name" }, n.name || "Unnamed NPC"),
+            el("i", { class: "fa-solid fa-chevron-down meg-sp-chevron" }),
         ));
+        d.appendChild(Object.keys(n.fields || {}).length
+            ? el("div", { class: "meg-sp-card-fields" },
+                Object.entries(n.fields).map(([k, v]) =>
+                    el("div", { class: "meg-sp-field" },
+                        el("span", { class: "meg-sp-field-key" }, k + ":"),
+                        " ",
+                        el("span", { class: "meg-sp-field-val" }, v))))
+            : el("div", { class: "meg-sp-muted" }, "(no parsed fields)"));
+        wrap.appendChild(d);
     }
     return wrap;
 }

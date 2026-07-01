@@ -187,6 +187,18 @@ function buildPanelSkeleton() {
 // -----------------------------------------------------------------------------
 // NPC Book bridge — opens the existing Megumin Suite modal on the NPCs Bank tab
 // -----------------------------------------------------------------------------
+function clickNpcBankDot() {
+    // Title-based lookup so upstream tab reorders don't break us
+    const dock = document.querySelectorAll("#ps_dynamic_dots .dock-icon");
+    for (let i = 0; i < dock.length; i++) {
+        if ((dock[i].getAttribute("title") || "").trim() === "NPCs Bank") {
+            const dot = document.getElementById("dot_" + i);
+            if (dot) { dot.click(); return true; }
+        }
+    }
+    return false;
+}
+
 function openNpcBook(focusIdx) {
     const $overlay = window.jQuery ? window.jQuery("#prompt-slot-modal-overlay") : null;
     if (!$overlay || !$overlay.length) {
@@ -194,17 +206,19 @@ function openNpcBook(focusIdx) {
         return;
     }
 
-    // Title-based lookup so upstream tab reorders don't break us
-    const dock = document.querySelectorAll("#ps_dynamic_dots .dock-icon");
-    let bankIdx = -1;
-    dock.forEach((d, i) => {
-        if ((d.getAttribute("title") || "").trim() === "NPCs Bank") bankIdx = i;
-    });
-
-    $overlay.fadeIn(200).css("display", "flex");
-    if (bankIdx >= 0) {
-        const dot = document.getElementById("dot_" + bankIdx);
-        if (dot) dot.click();
+    // The dock icons are only injected by Megumin's own open path (wand
+    // click → switchTab). If the modal has never been opened this session,
+    // the dock is empty and fading the overlay in shows a blank stage —
+    // so go through the wand's click handler, which runs the full init.
+    const dockEmpty = !document.querySelector("#ps_dynamic_dots .dock-icon");
+    if (dockEmpty) {
+        const wand = document.getElementById("prompt-slot-fixed-btn");
+        if (wand) wand.click();
+        // switchTab(0) has now rendered the dock; hop to the bank tab.
+        setTimeout(clickNpcBankDot, 50);
+    } else {
+        $overlay.fadeIn(200).css("display", "flex");
+        clickNpcBankDot();
     }
 
     if (typeof focusIdx === "number" && focusIdx >= 0) {
@@ -217,11 +231,22 @@ function openNpcBook(focusIdx) {
                     const header = card.querySelector(".npc-card-header");
                     const body = card.querySelector(".npc-card-body");
                     if (header && body && body.style.display === "none") header.click();
-                    card.scrollIntoView({ behavior: "smooth", block: "center" });
+                    // Scroll ONLY the modal's stage container. scrollIntoView
+                    // walks every scrollable ancestor — including the
+                    // overflow-hidden but programmatically-scrollable body —
+                    // which shifted ST's whole layout (the "grey bar" bug).
+                    const stage = document.getElementById("ps_stage_content");
+                    if (stage && stage.contains(card)) {
+                        const top = card.offsetTop - stage.clientHeight / 2 + card.offsetHeight / 2;
+                        stage.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+                    }
                     break;
                 }
             }
-        }, 300);
+            // Defensive: undo any stray document scroll from earlier sessions
+            if (document.documentElement.scrollTop) document.documentElement.scrollTop = 0;
+            if (document.body.scrollTop) document.body.scrollTop = 0;
+        }, dockEmpty ? 450 : 300);
     }
 }
 

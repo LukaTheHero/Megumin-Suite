@@ -1204,6 +1204,30 @@ body.meg-sp-hide-inline .mes_text details.meg-sp-tracker-block { display: none !
     margin-right: 6px;
 }
 
+/* Individually collapsible New NPC dossier cards */
+.meg-sp-newnpc > summary.meg-sp-newnpc-head {
+    list-style: none;
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    gap: var(--meg-space-3);
+    font-weight: var(--meg-fw-bold);
+    font-size: var(--meg-fs-sm);
+    color: var(--meg-text-hi);
+    transition: color var(--meg-t-fast);
+}
+.meg-sp-newnpc > summary.meg-sp-newnpc-head::-webkit-details-marker { display: none; }
+.meg-sp-newnpc > summary.meg-sp-newnpc-head:hover { color: var(--meg-gold-400); }
+.meg-sp-newnpc > summary.meg-sp-newnpc-head > i.fa-user-plus { color: var(--meg-c-success); }
+.meg-sp-newnpc-name { flex: 1; min-width: 0; }
+.meg-sp-newnpc[open] > summary .meg-sp-chevron {
+    transform: rotate(180deg);
+    color: var(--meg-gold-500);
+}
+.meg-sp-newnpc > .meg-sp-card-fields { margin-top: var(--meg-space-4); }
+.meg-sp-newnpcs { display: flex; flex-direction: column; gap: var(--meg-space-4); }
+
 /* =============================================================
    Micro-interactions
    ============================================================= */
